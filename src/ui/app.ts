@@ -24,7 +24,7 @@ interface UiGenerationProgress {
 }
 
 interface PointClockState {
-  phase: "debounce" | "queue";
+  phase: "debounce" | "queue" | "lookup";
   startedAt: number;
   targetAt: number;
   durationMs: number;
@@ -86,9 +86,9 @@ export function createApp(root: HTMLElement): void {
 
   const buildPointClockView = (
     pointIds: string[]
-  ): Record<string, { phase: "debounce" | "queue"; progress: number; title: string }> => {
+  ): Record<string, { phase: "debounce" | "queue" | "lookup"; progress: number; title: string }> => {
     const now = Date.now();
-    const view: Record<string, { phase: "debounce" | "queue"; progress: number; title: string }> =
+    const view: Record<string, { phase: "debounce" | "queue" | "lookup"; progress: number; title: string }> =
       {};
 
     for (const pointId of pointIds) {
@@ -99,7 +99,14 @@ export function createApp(root: HTMLElement): void {
       const baseDuration = Math.max(1, state.durationMs);
       const countdownProgress = Math.max(0, Math.min(1, remainingMs / baseDuration));
 
-      if (state.phase === "debounce") {
+      if (state.phase === "lookup") {
+        const lookupMs = Math.max(0, now - state.startedAt);
+        view[pointId] = {
+          phase: "lookup",
+          progress: (lookupMs % 1200) / 1200,
+          title: `Resolving address: ${(Math.ceil(lookupMs / 100) / 10).toFixed(1)}s`
+        };
+      } else if (state.phase === "debounce") {
         const remainingSeconds = (Math.ceil(remainingMs / 100) / 10).toFixed(1);
         view[pointId] = {
           phase: "debounce",
@@ -170,7 +177,13 @@ export function createApp(root: HTMLElement): void {
               requestUiRefresh?.();
             },
             onStarted: () => {
-              clearPointClock(pointId);
+              const startedAt = Date.now();
+              setPointClock(pointId, {
+                phase: "lookup",
+                startedAt,
+                targetAt: startedAt,
+                durationMs: 1
+              });
               requestUiRefresh?.();
             }
           }

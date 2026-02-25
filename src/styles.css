@@ -155,6 +155,7 @@ body,
   border-bottom: 1px solid var(--border);
   text-align: left;
   padding: 4px;
+  vertical-align: middle;
 }
 
 .points-table input {
@@ -163,13 +164,17 @@ body,
 
 .point-actions {
   white-space: nowrap;
+  min-width: 132px;
+}
+
+.point-actions-inner {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: 6px;
   position: relative;
-  min-width: 126px;
-  padding-left: 18px;
+  min-height: 32px;
+  padding-left: 30px;
 }
 
 .points-help {
@@ -199,16 +204,20 @@ body,
 .point-clock-dial {
   --clock-progress: 0;
   position: absolute;
-  left: 2px;
+  left: 4px;
   top: 50%;
-  width: 12px;
-  height: 12px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   transform: translateY(-50%);
-  border: 1px solid #8ba9c7;
+  border: 1px solid #9ab0c6;
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.78),
+    0 0 0 1px rgba(246, 250, 255, 0.72);
+  pointer-events: none;
   background:
-    radial-gradient(circle at center, #ffffff 34%, transparent 36%),
-    conic-gradient(var(--clock-color) calc(var(--clock-progress) * 1turn), #e5edf5 0);
+    radial-gradient(circle at center, #ffffff 30%, transparent 33%),
+    conic-gradient(var(--clock-color) calc(var(--clock-progress) * 1turn), #e2ebf4 0);
 }
 
 .point-clock-dial.debounce {
@@ -217,6 +226,44 @@ body,
 
 .point-clock-dial.queue {
   --clock-color: #b45309;
+}
+
+.point-clock-dial.lookup {
+  --clock-color: #0f4b7a;
+  border-color: #7da8c5;
+  background:
+    radial-gradient(circle at center, #ffffff 35%, transparent 38%),
+    conic-gradient(
+      from calc(var(--clock-progress) * 1turn),
+      rgba(10, 77, 122, 0.92) 0 22%,
+      rgba(181, 212, 234, 0.45) 22% 100%
+    );
+  animation:
+    point-clock-lookup-spin 1150ms linear infinite,
+    point-clock-lookup-breathe 1450ms ease-in-out infinite;
+}
+
+@keyframes point-clock-lookup-spin {
+  from {
+    transform: translateY(-50%) rotate(0deg);
+  }
+  to {
+    transform: translateY(-50%) rotate(360deg);
+  }
+}
+
+@keyframes point-clock-lookup-breathe {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.78),
+      0 0 0 1px rgba(246, 250, 255, 0.72);
+  }
+  50% {
+    box-shadow:
+      inset 0 0 0 1px rgba(255, 255, 255, 0.86),
+      0 0 0 1px rgba(198, 224, 244, 0.95);
+  }
 }
 
 .status-line {

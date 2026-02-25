@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Improve geocoding request gentleness and add richer interaction feedback.
+Refine point-row dial UX and in-flight address resolution feedback.
 
 ## CURRENT_SUBTASK
-Completed implementation and verification (`npm run test:run`, `npm run build`).
+Completed `lookup` clock phase + dial styling harmonization; verified with `npm run test:run` and `npm run build`.
 
 ## ARCHITECTURE_FACTS
 - App is fully browser-only (no backend).
@@ -45,7 +45,9 @@ Completed implementation and verification (`npm run test:run`, `npm run build`).
   - active station list uses compact clock chips for unresolved points:
     - `D` countdown for debounce delay,
     - `Q` countdown/elapsed indicator for queue waiting,
-    - latest UI version uses tiny analog-style circular timers instead of text pills.
+    - `lookup` animated dial while reverse-geocode request is actively in-flight,
+    - latest UI version uses tiny analog-style circular timers instead of text pills,
+    - timer is rendered in a fixed position left of action buttons using an inner actions wrapper to avoid table-line artifacts/layout shift.
 - Generation progress UX:
   - `generateTrips` emits progress phases (`setup`, `walking`, `assemble`, `done`),
   - panel renders a live generation-process card with phase message + progress bar,

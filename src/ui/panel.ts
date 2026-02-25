@@ -18,7 +18,7 @@ export interface PanelModel {
   pointClocks: Record<
     string,
     {
-      phase: "debounce" | "queue";
+      phase: "debounce" | "queue" | "lookup";
       progress: number;
       title: string;
     }
@@ -77,7 +77,7 @@ function escapeHtml(value: string): string {
 function pointRow(
   point: WalkPoint,
   selectedPointId: string | null,
-  pointClock?: { phase: "debounce" | "queue"; progress: number; title: string }
+  pointClock?: { phase: "debounce" | "queue" | "lookup"; progress: number; title: string }
 ): string {
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
@@ -86,17 +86,19 @@ function pointRow(
       <span class="point-label">${escapeHtml(label)}</span>
     </td>
     <td class="point-actions">
-      ${
-        pointClock
-          ? `<span class="point-clock-dial ${pointClock.phase}" title="${escapeHtml(pointClock.title)}" style="--clock-progress:${Math.max(
-              0,
-              Math.min(1, pointClock.progress)
-            ).toFixed(3)}"></span>`
-          : ""
-      }
-      <button data-point-up type="button">↑</button>
-      <button data-point-down type="button">↓</button>
-      <button data-point-delete type="button">Delete</button>
+      <div class="point-actions-inner">
+        ${
+          pointClock
+            ? `<span class="point-clock-dial ${pointClock.phase}" title="${escapeHtml(pointClock.title)}" style="--clock-progress:${Math.max(
+                0,
+                Math.min(1, pointClock.progress)
+              ).toFixed(3)}"></span>`
+            : ""
+        }
+        <button data-point-up type="button">↑</button>
+        <button data-point-down type="button">↓</button>
+        <button data-point-delete type="button">Delete</button>
+      </div>
     </td>
   </tr>`;
 }
