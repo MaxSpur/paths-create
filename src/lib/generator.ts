@@ -14,6 +14,13 @@ import type {
   WalkPoint
 } from "./types";
 
+export interface GenerationProgressUpdate {
+  phase: "setup" | "walking" | "assemble" | "done";
+  message: string;
+  current: number;
+  total: number;
+}
+
 export interface GenerateTripsInput {
   orsApiKey: string;
   overpassUrl: string;
@@ -23,6 +30,7 @@ export interface GenerateTripsInput {
   seed?: number;
   maxSnapDistanceM?: number;
   railPaddingM?: number;
+  onProgress?: (update: GenerationProgressUpdate) => void;
 }
 
 function stationPoint(station: StationRecord): LatLon {
@@ -41,7 +49,8 @@ async function buildWalkLegs(
   orsClient: OrsClient,
   pointList: WalkPoint[],
   toStation: LatLon,
-  fromStation = false
+  fromStation = false,
+  onProgress?: (completed: number, total: number) => void
 ): Promise<Map<string, LonLat[]>> {
   const requests = pointList.map((point) => ({
     id: point.id,
@@ -49,7 +58,7 @@ async function buildWalkLegs(
     to: fromStation ? { lat: point.lat, lon: point.lon } : toStation
   }));
 
-  const results = await orsClient.getManyWalkingRoutes(requests, 2);
+  const results = await orsClient.getManyWalkingRoutes(requests, 2, onProgress);
   const map = new Map<string, LonLat[]>();
   for (const result of results) {
     if (result.coordinates && result.coordinates.length > 1) {
@@ -61,6 +70,18 @@ async function buildWalkLegs(
 
 export async function generateTrips(input: GenerateTripsInput): Promise<GenerationResult> {
   const failures: GenerationFailure[] = [];
+  const progress = input.onProgress;
+
+  const emitProgress = (update: GenerationProgressUpdate) => {
+    progress?.(update);
+  };
+
+  emitProgress({
+    phase: "setup",
+    message: "Checking inputs",
+    current: 0,
+    total: 5
+  });
 
   if (!input.orsApiKey.trim()) {
     return {
@@ -94,9 +115,21 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   }
 
   const railPaddingM = input.railPaddingM ?? 1800;
+  emitProgress({
+    phase: "setup",
+    message: "Fetching rail network",
+    current: 1,
+    total: 5
+  });
   const bbox = computeBbox([stationPoint(input.originStation), stationPoint(input.destinationStation)], railPaddingM);
 
   const railData = await fetchRailWays(input.overpassUrl, bbox);
+  emitProgress({
+    phase: "setup",
+    message: "Building rail graph",
+    current: 2,
+    total: 5
+  });
   const graph = buildRailGraph(railData);
 
   const maxSnapDistanceM = input.maxSnapDistanceM ?? 200;
@@ -121,6 +154,12 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     };
   }
 
+  emitProgress({
+    phase: "setup",
+    message: "Computing metro path",
+    current: 3,
+    total: 5
+  });
   const railNodePath = shortestPath(graph, originNode, destinationNode);
   if (!railNodePath || railNodePath.length < 2) {
     return {
@@ -141,6 +180,12 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   }
 
   const metroCoords = nodePathToCoordinates(graph, railNodePath);
+  emitProgress({
+    phase: "setup",
+    message: "Generating point pairings",
+    current: 4,
+    total: 5
+  });
   const pairings = generateRoundRobinPairs(
     input.originStation.walkPoints,
     input.destinationStation.walkPoints,
@@ -156,12 +201,55 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     new Map(pairings.pairs.map((pair) => [pair.destination.id, pair.destination])).values()
   );
 
+  const totalWalkRequests = uniqueOrigins.length + uniqueDestinations.length;
+  let walkInCompleted = 0;
+  let walkOutCompleted = 0;
+  const emitWalkingProgress = (label: string) => {
+    emitProgress({
+      phase: "walking",
+      message: `${label} (${walkInCompleted + walkOutCompleted}/${totalWalkRequests})`,
+      current: walkInCompleted + walkOutCompleted,
+      total: totalWalkRequests
+    });
+  };
+
+  emitProgress({
+    phase: "setup",
+    message: "Preparing walking routes",
+    current: 5,
+    total: 5
+  });
+
   const [walkInMap, walkOutMap] = await Promise.all([
-    buildWalkLegs(orsClient, uniqueOrigins, stationPoint(input.originStation), false),
-    buildWalkLegs(orsClient, uniqueDestinations, stationPoint(input.destinationStation), true)
+    buildWalkLegs(
+      orsClient,
+      uniqueOrigins,
+      stationPoint(input.originStation),
+      false,
+      (completed) => {
+        walkInCompleted = completed;
+        emitWalkingProgress("Walking to origin station");
+      }
+    ),
+    buildWalkLegs(
+      orsClient,
+      uniqueDestinations,
+      stationPoint(input.destinationStation),
+      true,
+      (completed) => {
+        walkOutCompleted = completed;
+        emitWalkingProgress("Walking from destination station");
+      }
+    )
   ]);
 
   const trips: GenerationResult["trips"] = [];
+  emitProgress({
+    phase: "assemble",
+    message: "Composing trip GPX files",
+    current: 0,
+    total: pairings.pairs.length
+  });
   for (let index = 0; index < pairings.pairs.length; index += 1) {
     const pair = pairings.pairs[index];
     const walkIn = walkInMap.get(pair.origin.id);
@@ -207,7 +295,21 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       metroCoords,
       walkOutCoords: walkOut
     });
+
+    emitProgress({
+      phase: "assemble",
+      message: "Composing trip GPX files",
+      current: index + 1,
+      total: pairings.pairs.length
+    });
   }
+
+  emitProgress({
+    phase: "done",
+    message: "Generation complete",
+    current: 1,
+    total: 1
+  });
 
   return {
     trips,

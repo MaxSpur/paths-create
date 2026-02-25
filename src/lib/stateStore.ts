@@ -1,4 +1,4 @@
-import type { AppState, StationRecord } from "./types";
+import type { AppState, StationRecord, WalkPoint } from "./types";
 
 export const STORAGE_KEY = "odc.generator.state.v1";
 export const STATE_SCHEMA_VERSION = 1;
@@ -22,12 +22,22 @@ function normalizeStation(raw: unknown): StationRecord | null {
   const normalizedPoints = walkPoints
     .filter((p): p is Record<string, unknown> => isObject(p))
     .filter((p) => typeof p.id === "string" && isFiniteNumber(p.lat) && isFiniteNumber(p.lon))
-    .map((p) => ({
-      id: p.id as string,
-      lat: p.lat as number,
-      lon: p.lon as number,
-      label: typeof p.label === "string" ? p.label : undefined
-    }));
+    .map((p) => {
+      const normalizedStatus: WalkPoint["addressStatus"] =
+        p.addressStatus === "resolving" || p.addressStatus === "resolved" || p.addressStatus === "failed"
+          ? p.addressStatus
+          : typeof p.label === "string" && p.label.trim() && p.label !== "Resolving address..."
+            ? "resolved"
+            : "resolving";
+
+      return {
+        id: p.id as string,
+        lat: p.lat as number,
+        lon: p.lon as number,
+        label: typeof p.label === "string" ? p.label : undefined,
+        addressStatus: normalizedStatus
+      };
+    });
 
   return {
     id: raw.id,

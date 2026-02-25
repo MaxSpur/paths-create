@@ -15,6 +15,13 @@ export interface PanelModel {
   randomCount: number;
   randomRadiusM: number;
   nearbyCandidates: StationCandidate[];
+  generationProgress?: {
+    phase: string;
+    message: string;
+    current: number;
+    total: number;
+    percent: number;
+  };
   report?: GenerationReport;
   canDownload: boolean;
   statusText?: string;
@@ -61,8 +68,14 @@ function escapeHtml(value: string): string {
 function pointRow(point: WalkPoint, selectedPointId: string | null): string {
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
+  const status = point.addressStatus ?? "resolving";
+  const statusText =
+    status === "resolved" ? "Resolved" : status === "failed" ? "Lookup failed" : "Resolving";
   return `<tr data-point-id="${point.id}" class="${isSelected ? "is-selected" : ""}">
-    <td><span class="point-label">${escapeHtml(label)}</span></td>
+    <td>
+      <span class="point-label">${escapeHtml(label)}</span>
+      <span class="address-state ${status}">${statusText}</span>
+    </td>
     <td class="point-actions">
       <button data-point-up type="button">↑</button>
       <button data-point-down type="button">↓</button>
@@ -105,6 +118,20 @@ function reportHtml(model: PanelModel): string {
     <div>Requested: ${model.report.requestedTrips} | Generated: ${model.report.generatedTrips} | Failed: ${model.report.failedTrips}</div>
     <div>Unique pairs: ${model.report.pairingStats.uniquePairsUsed} | Max pair reuse: ${model.report.pairingStats.maxPairReuse}</div>
     ${failures ? `<ul>${failures}</ul>` : ""}
+  </div>`;
+}
+
+function progressHtml(model: PanelModel): string {
+  const progress = model.generationProgress;
+  if (!progress) return "";
+
+  return `<div class="progress-box phase-${progress.phase}">
+    <div class="progress-title">Generation progress</div>
+    <div class="progress-message">${escapeHtml(progress.message)}</div>
+    <div class="progress-meta">${progress.current}/${progress.total}</div>
+    <div class="progress-bar-shell">
+      <div class="progress-bar-fill" style="width:${Math.max(0, Math.min(100, progress.percent)).toFixed(1)}%"></div>
+    </div>
   </div>`;
 }
 
@@ -196,6 +223,7 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         <button id="clearPreview" type="button">Clear preview</button>
         <button id="download" type="button" ${model.canDownload ? "" : "disabled"}>Download GPX ZIP</button>
       </div>
+      ${progressHtml(model)}
       ${reportHtml(model)}
     </section>
 

@@ -3,7 +3,7 @@ import type { LatLon } from "./types";
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 const CACHE_DECIMALS = 5;
 const MAX_CONCURRENCY = 1;
-const MIN_REQUEST_GAP_MS = 300;
+const MIN_REQUEST_GAP_MS = 2000;
 
 const cache = new Map<string, string>();
 const queue: Array<() => void> = [];

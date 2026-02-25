@@ -5,6 +5,7 @@ export interface WalkPoint {
   lat: number;
   lon: number;
   label?: string;
+  addressStatus?: "resolving" | "resolved" | "failed";
 }
 
 export interface StationRecord {

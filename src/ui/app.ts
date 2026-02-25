@@ -5,6 +5,7 @@ import { newId } from "../lib/ids";
 import { fetchNearbyStations } from "../lib/overpassClient";
 import { samplePointsWithinRadius } from "../lib/sampling";
 import { createStateStore } from "../lib/stateStore";
+import type { GenerationProgressUpdate } from "../lib/generator";
 import type { GeneratedTrip, GenerationReport, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import { MapView } from "./map";
 import { renderPanel } from "./panel";
@@ -12,6 +13,14 @@ import { renderPanel } from "./panel";
 interface GenerationArtifacts {
   report: GenerationReport;
   files: Array<{ fileName: string; content: string }>;
+}
+
+interface UiGenerationProgress {
+  phase: string;
+  message: string;
+  current: number;
+  total: number;
+  percent: number;
 }
 
 type EditMode = "idle" | "add_station" | "add_point";
@@ -38,6 +47,7 @@ export function createApp(root: HTMLElement): void {
   let nearbyCandidates: StationCandidate[] = [];
   let previewTrips: GeneratedTrip[] = [];
   let generationArtifacts: GenerationArtifacts | null = null;
+  let generationProgress: UiGenerationProgress | null = null;
   const pointAddressTimers = new Map<string, number>();
 
   const clearPointAddressTimer = (pointId: string) => {
@@ -73,14 +83,43 @@ export function createApp(root: HTMLElement): void {
           }
 
           point.label = label;
+          point.addressStatus = "resolved";
           return draft;
         });
       } catch {
-        // Keep current label when reverse geocoding fails.
+        store.update((draft) => {
+          const station = draft.stations.find((item) => item.id === stationId);
+          const point = station?.walkPoints.find((item) => item.id === pointId);
+          if (!point) return draft;
+
+          const samePosition =
+            Math.abs(point.lat - lat) < 1e-7 && Math.abs(point.lon - lon) < 1e-7;
+          if (!samePosition) {
+            return draft;
+          }
+
+          point.addressStatus = "failed";
+          if (!point.label || point.label === "Resolving address...") {
+            point.label = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+          }
+          return draft;
+        });
       }
     }, Math.max(0, delayMs));
 
     pointAddressTimers.set(pointId, timer);
+  };
+
+  const applyGenerationProgress = (update: GenerationProgressUpdate) => {
+    const total = Math.max(1, update.total);
+    const current = Math.min(total, Math.max(0, update.current));
+    generationProgress = {
+      phase: update.phase,
+      message: update.message,
+      current,
+      total,
+      percent: total > 0 ? (current / total) * 100 : 0
+    };
   };
 
   const map = new MapView(
@@ -105,6 +144,7 @@ export function createApp(root: HTMLElement): void {
             selectedPoint.lat = point.lat;
             selectedPoint.lon = point.lon;
             selectedPoint.label = "Resolving address...";
+            selectedPoint.addressStatus = "resolving";
             moved = true;
             return draft;
           });
@@ -163,7 +203,8 @@ export function createApp(root: HTMLElement): void {
             id: newId("pt"),
             lat: point.lat,
             lon: point.lon,
-            label: "Resolving address..."
+            label: "Resolving address...",
+            addressStatus: "resolving"
           };
           store.update((draft) => {
             const station = draft.stations.find((s) => s.id === activeStationId);
@@ -322,7 +363,8 @@ export function createApp(root: HTMLElement): void {
     );
     const randomPoints = sampledPoints.map((point) => ({
       ...point,
-      label: "Resolving address..."
+      label: "Resolving address...",
+      addressStatus: "resolving" as const
     }));
 
     store.update((draft) => {
@@ -395,6 +437,13 @@ export function createApp(root: HTMLElement): void {
 
     busy = true;
     statusText = "Generating trips...";
+    generationProgress = {
+      phase: "setup",
+      message: "Starting generation",
+      current: 0,
+      total: 1,
+      percent: 0
+    };
     render();
 
     try {
@@ -404,7 +453,11 @@ export function createApp(root: HTMLElement): void {
         originStation: origin,
         destinationStation: destination,
         tripCount: state.generation.tripCount,
-        seed: state.generation.seed
+        seed: state.generation.seed,
+        onProgress: (update) => {
+          applyGenerationProgress(update);
+          render();
+        }
       });
 
       previewTrips = result.trips;
@@ -412,10 +465,24 @@ export function createApp(root: HTMLElement): void {
         report: result.report,
         files: result.trips.map((trip) => ({ fileName: trip.fileName, content: trip.gpx }))
       };
+      generationProgress = {
+        phase: "done",
+        message: "Generation complete",
+        current: 1,
+        total: 1,
+        percent: 100
+      };
       statusText = `Generation complete: ${result.report.generatedTrips}/${result.report.requestedTrips}.`;
     } catch (error) {
       generationArtifacts = null;
       previewTrips = [];
+      generationProgress = {
+        phase: "done",
+        message: "Generation failed",
+        current: 0,
+        total: 1,
+        percent: 0
+      };
       statusText = error instanceof Error ? error.message : String(error);
     } finally {
       busy = false;
@@ -438,6 +505,7 @@ export function createApp(root: HTMLElement): void {
   const clearPreview = () => {
     previewTrips = [];
     generationArtifacts = null;
+    generationProgress = null;
     statusText = "Preview cleared.";
     render();
   };
@@ -455,6 +523,7 @@ export function createApp(root: HTMLElement): void {
     nearbyCandidates = [];
     previewTrips = [];
     generationArtifacts = null;
+    generationProgress = null;
     statusText = "All saved data reset.";
     render();
   };
@@ -488,6 +557,7 @@ export function createApp(root: HTMLElement): void {
         randomCount: state.randomPointDefaults.count,
         randomRadiusM: state.randomPointDefaults.radiusM,
         nearbyCandidates,
+        generationProgress: generationProgress ?? undefined,
         report: generationArtifacts?.report,
         canDownload: Boolean(generationArtifacts && generationArtifacts.files.length > 0),
         statusText
@@ -541,11 +611,18 @@ export function createApp(root: HTMLElement): void {
           render();
         },
         onSelectPoint: (stationId, pointId) => {
+          const stateNow = store.getState();
+          const station = stateNow.stations.find((item) => item.id === stationId);
+          const point = station?.walkPoints.find((item) => item.id === pointId);
+
           store.update((draft) => {
             draft.ui.activeStationId = stationId;
             draft.ui.selectedPointId = pointId;
             return draft;
           });
+          if (point) {
+            map.focusOnPoint({ lat: point.lat, lon: point.lon });
+          }
           render();
         },
         onDeletePoint: (stationId, pointId) => {

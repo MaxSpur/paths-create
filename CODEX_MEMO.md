@@ -1,7 +1,7 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Fix marker selection edge cases and switch point labels to reverse-geocoded read-only addresses.
+Improve geocoding request gentleness and add richer interaction feedback.
 
 ## CURRENT_SUBTASK
 Completed implementation and verification (`npm run test:run`, `npm run build`).
@@ -39,6 +39,14 @@ Completed implementation and verification (`npm run test:run`, `npm run build`).
   - walk-point labels are read-only in UI,
   - labels are resolved via reverse geocoding (`src/lib/geocode.ts`) on creation,
   - moving a selected point debounces address lookup by 2 seconds; each move resets the timer.
+  - reverse-geocode requests are serialized and rate-limited to at most one request every 2 seconds.
+- Point status and feedback:
+  - points carry `addressStatus` (`resolving|resolved|failed`) in persisted state,
+  - active station list shows status badges for each point.
+- Generation progress UX:
+  - `generateTrips` emits progress phases (`setup`, `walking`, `assemble`, `done`),
+  - panel renders a live progress box with phase message + progress bar while generation runs.
+- Selecting a point from the list now pans the map to that point.
 
 ## KNOWN_LIMITS
 - ORS and Overpass CORS/rate limits are external constraints.

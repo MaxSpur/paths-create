@@ -59,6 +59,10 @@ export class MapView {
     return { lat: center.lat, lon: center.lng };
   }
 
+  focusOnPoint(point: LatLon): void {
+    this.map.panTo([point.lat, point.lon], { animate: true, duration: 0.35 });
+  }
+
   render(model: MapRenderModel): void {
     this.stationLayer.clearLayers();
     this.pointLayer.clearLayers();

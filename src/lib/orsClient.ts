@@ -130,16 +130,24 @@ export class OrsClient {
 
   async getManyWalkingRoutes(
     requests: WalkingRouteRequest[],
-    concurrency = 2
+    concurrency = 2,
+    onProgress?: (completed: number, total: number) => void
   ): Promise<WalkingRouteResult[]> {
+    const total = requests.length;
+    let completed = 0;
+
     return mapConcurrent(requests, concurrency, async (request) => {
       try {
         const coordinates = await this.getWalkingRoute(request.from, request.to);
+        completed += 1;
+        onProgress?.(completed, total);
         return {
           id: request.id,
           coordinates
         };
       } catch (error) {
+        completed += 1;
+        onProgress?.(completed, total);
         return {
           id: request.id,
           error: error instanceof Error ? error.message : String(error)
