@@ -15,6 +15,15 @@ export interface PanelModel {
   randomCount: number;
   randomRadiusM: number;
   nearbyCandidates: StationCandidate[];
+  pointClocks: Record<
+    string,
+    {
+      phase: "debounce" | "queue";
+      progress: number;
+      title: string;
+    }
+  >;
+  scrollSelectedIntoView?: boolean;
   generationProgress?: {
     phase: string;
     message: string;
@@ -65,18 +74,26 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#039;");
 }
 
-function pointRow(point: WalkPoint, selectedPointId: string | null): string {
+function pointRow(
+  point: WalkPoint,
+  selectedPointId: string | null,
+  pointClock?: { phase: "debounce" | "queue"; progress: number; title: string }
+): string {
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
-  const status = point.addressStatus ?? "resolving";
-  const statusText =
-    status === "resolved" ? "Resolved" : status === "failed" ? "Lookup failed" : "Resolving";
   return `<tr data-point-id="${point.id}" class="${isSelected ? "is-selected" : ""}">
     <td>
       <span class="point-label">${escapeHtml(label)}</span>
-      <span class="address-state ${status}">${statusText}</span>
     </td>
     <td class="point-actions">
+      ${
+        pointClock
+          ? `<span class="point-clock-dial ${pointClock.phase}" title="${escapeHtml(pointClock.title)}" style="--clock-progress:${Math.max(
+              0,
+              Math.min(1, pointClock.progress)
+            ).toFixed(3)}"></span>`
+          : ""
+      }
       <button data-point-up type="button">↑</button>
       <button data-point-down type="button">↓</button>
       <button data-point-delete type="button">Delete</button>
@@ -107,31 +124,39 @@ function stationCard(station: StationRecord, model: PanelModel): string {
   </div>`;
 }
 
-function reportHtml(model: PanelModel): string {
-  if (!model.report) return "";
-  const failures = model.report.failures
-    .slice(0, 6)
-    .map((failure) => `<li><code>${failure.code}</code> ${failure.message}</li>`)
-    .join("");
-  return `<div class="report-box">
-    <strong>Generation report</strong>
-    <div>Requested: ${model.report.requestedTrips} | Generated: ${model.report.generatedTrips} | Failed: ${model.report.failedTrips}</div>
-    <div>Unique pairs: ${model.report.pairingStats.uniquePairsUsed} | Max pair reuse: ${model.report.pairingStats.maxPairReuse}</div>
-    ${failures ? `<ul>${failures}</ul>` : ""}
-  </div>`;
-}
-
 function progressHtml(model: PanelModel): string {
   const progress = model.generationProgress;
-  if (!progress) return "";
+  const report = model.report;
+  if (!progress && !report) return "";
 
-  return `<div class="progress-box phase-${progress.phase}">
-    <div class="progress-title">Generation progress</div>
-    <div class="progress-message">${escapeHtml(progress.message)}</div>
-    <div class="progress-meta">${progress.current}/${progress.total}</div>
+  const title = progress ? "Generation process" : "Generation complete";
+  const message = progress ? progress.message : "Completed";
+  const current = progress ? progress.current : report?.requestedTrips ?? 0;
+  const total = progress ? progress.total : report?.requestedTrips ?? 0;
+  const percent = progress ? progress.percent : 100;
+  const failures = report
+    ? report.failures
+        .slice(0, 6)
+        .map((failure) => `<li><code>${failure.code}</code> ${failure.message}</li>`)
+        .join("")
+    : "";
+
+  return `<div class="progress-box phase-${progress?.phase ?? "done"}">
+    <div class="progress-title">${title}</div>
+    <div class="progress-message">${escapeHtml(message)}</div>
+    <div class="progress-meta">${current}/${total}</div>
     <div class="progress-bar-shell">
-      <div class="progress-bar-fill" style="width:${Math.max(0, Math.min(100, progress.percent)).toFixed(1)}%"></div>
+      <div class="progress-bar-fill" style="width:${Math.max(0, Math.min(100, percent)).toFixed(1)}%"></div>
     </div>
+    ${
+      report
+        ? `<div class="progress-report">
+            <div>Requested: ${report.requestedTrips} | Generated: ${report.generatedTrips} | Failed: ${report.failedTrips}</div>
+            <div>Unique pairs: ${report.pairingStats.uniquePairsUsed} | Max pair reuse: ${report.pairingStats.maxPairReuse}</div>
+            ${failures ? `<ul>${failures}</ul>` : ""}
+          </div>`
+        : ""
+    }
   </div>`;
 }
 
@@ -202,7 +227,9 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
           <table class="points-table">
             <thead><tr><th>Label</th><th>Actions</th></tr></thead>
             <tbody>
-              ${activeStation.walkPoints.map((point) => pointRow(point, model.selectedPointId)).join("")}
+              ${activeStation.walkPoints
+                .map((point) => pointRow(point, model.selectedPointId, model.pointClocks[point.id]))
+                .join("")}
             </tbody>
           </table>
         `
@@ -224,7 +251,6 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         <button id="download" type="button" ${model.canDownload ? "" : "disabled"}>Download GPX ZIP</button>
       </div>
       ${progressHtml(model)}
-      ${reportHtml(model)}
     </section>
 
     <section>
@@ -317,12 +343,9 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         callbacks.onMovePoint(activeStation.id, pointId, "down");
       });
     }
-
-    if (model.selectedPointId) {
+    if (model.scrollSelectedIntoView && model.selectedPointId) {
       const selectedRow = container.querySelector<HTMLElement>(`tr[data-point-id="${model.selectedPointId}"]`);
-      if (selectedRow) {
-        selectedRow.scrollIntoView({ block: "nearest" });
-      }
+      selectedRow?.scrollIntoView({ block: "nearest" });
     }
   }
 

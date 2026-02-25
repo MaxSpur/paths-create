@@ -42,11 +42,16 @@ Completed implementation and verification (`npm run test:run`, `npm run build`).
   - reverse-geocode requests are serialized and rate-limited to at most one request every 2 seconds.
 - Point status and feedback:
   - points carry `addressStatus` (`resolving|resolved|failed`) in persisted state,
-  - active station list shows status badges for each point.
+  - active station list uses compact clock chips for unresolved points:
+    - `D` countdown for debounce delay,
+    - `Q` countdown/elapsed indicator for queue waiting,
+    - latest UI version uses tiny analog-style circular timers instead of text pills.
 - Generation progress UX:
   - `generateTrips` emits progress phases (`setup`, `walking`, `assemble`, `done`),
-  - panel renders a live progress box with phase message + progress bar while generation runs.
+  - panel renders a live generation-process card with phase message + progress bar,
+  - final generation report is embedded in that same process card (not separate).
 - Selecting a point from the list now pans the map to that point.
+- Selecting a point on the map now triggers one-shot `scrollIntoView` for its list row; list clicks do not auto-scroll.
 
 ## KNOWN_LIMITS
 - ORS and Overpass CORS/rate limits are external constraints.

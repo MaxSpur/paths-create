@@ -6,9 +6,22 @@ const MAX_CONCURRENCY = 1;
 const MIN_REQUEST_GAP_MS = 2000;
 
 const cache = new Map<string, string>();
-const queue: Array<() => void> = [];
+
+type QueueEntry<T> = {
+  task: () => Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+  hooks?: ReverseGeocodeHooks;
+};
+
+const queue: Array<QueueEntry<any>> = [];
 let active = 0;
 let lastRequestStartedAt = 0;
+
+export interface ReverseGeocodeHooks {
+  onQueued?: (info: { queuePosition: number; estimatedWaitMs: number }) => void;
+  onStarted?: () => void;
+}
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -18,31 +31,57 @@ function cacheKey(point: LatLon): string {
   return `${point.lat.toFixed(CACHE_DECIMALS)},${point.lon.toFixed(CACHE_DECIMALS)}`;
 }
 
-function enqueue<T>(task: () => Promise<T>): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const run = async () => {
-      active += 1;
-      try {
-        const value = await task();
-        resolve(value);
-      } catch (error) {
-        reject(error);
-      } finally {
-        active -= 1;
-        const next = queue.shift();
-        if (next) {
-          next();
-        }
-      }
-    };
+function estimateWaitMs(queuePosition: number): number {
+  const now = Date.now();
+  const gapRemaining = Math.max(0, MIN_REQUEST_GAP_MS - (now - lastRequestStartedAt));
+  if (queuePosition <= 0) {
+    return gapRemaining;
+  }
+  return gapRemaining + queuePosition * MIN_REQUEST_GAP_MS;
+}
 
-    if (active < MAX_CONCURRENCY) {
-      void run();
-    } else {
-      queue.push(() => {
-        void run();
-      });
+async function processQueue(): Promise<void> {
+  if (active >= MAX_CONCURRENCY || queue.length === 0) {
+    return;
+  }
+
+  const entry = queue.shift();
+  if (!entry) {
+    return;
+  }
+
+  active += 1;
+  try {
+    const elapsed = Date.now() - lastRequestStartedAt;
+    if (elapsed < MIN_REQUEST_GAP_MS) {
+      await sleep(MIN_REQUEST_GAP_MS - elapsed);
     }
+
+    lastRequestStartedAt = Date.now();
+    entry.hooks?.onStarted?.();
+
+    const value = await entry.task();
+    entry.resolve(value);
+  } catch (error) {
+    entry.reject(error);
+  } finally {
+    active -= 1;
+    if (queue.length > 0) {
+      void processQueue();
+    }
+  }
+}
+
+function enqueue<T>(task: () => Promise<T>, hooks?: ReverseGeocodeHooks): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const queuePosition = active + queue.length;
+    const estimatedWait = estimateWaitMs(queuePosition);
+    if (estimatedWait > 0 || queuePosition > 0) {
+      hooks?.onQueued?.({ queuePosition, estimatedWaitMs: estimatedWait });
+    }
+
+    queue.push({ task, resolve, reject, hooks });
+    void processQueue();
   });
 }
 
@@ -87,7 +126,7 @@ function formatAddress(payload: {
   return null;
 }
 
-export async function reverseGeocodeLabel(point: LatLon): Promise<string> {
+export async function reverseGeocodeLabel(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<string> {
   const key = cacheKey(point);
   const cached = cache.get(key);
   if (cached) {
@@ -95,12 +134,6 @@ export async function reverseGeocodeLabel(point: LatLon): Promise<string> {
   }
 
   const label = await enqueue(async () => {
-    const elapsed = Date.now() - lastRequestStartedAt;
-    if (elapsed < MIN_REQUEST_GAP_MS) {
-      await sleep(MIN_REQUEST_GAP_MS - elapsed);
-    }
-    lastRequestStartedAt = Date.now();
-
     const params = new URLSearchParams({
       format: "jsonv2",
       lat: String(point.lat),
@@ -128,7 +161,7 @@ export async function reverseGeocodeLabel(point: LatLon): Promise<string> {
       formatAddress(payload) ??
       `${point.lat.toFixed(CACHE_DECIMALS)}, ${point.lon.toFixed(CACHE_DECIMALS)}`
     );
-  });
+  }, hooks);
 
   cache.set(key, label);
   return label;

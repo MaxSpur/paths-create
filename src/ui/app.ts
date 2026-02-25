@@ -23,6 +23,13 @@ interface UiGenerationProgress {
   percent: number;
 }
 
+interface PointClockState {
+  phase: "debounce" | "queue";
+  startedAt: number;
+  targetAt: number;
+  durationMs: number;
+}
+
 type EditMode = "idle" | "add_station" | "add_point";
 
 export function createApp(root: HTMLElement): void {
@@ -48,7 +55,78 @@ export function createApp(root: HTMLElement): void {
   let previewTrips: GeneratedTrip[] = [];
   let generationArtifacts: GenerationArtifacts | null = null;
   let generationProgress: UiGenerationProgress | null = null;
+  let scrollSelectedIntoView = false;
   const pointAddressTimers = new Map<string, number>();
+  const pointClockStates = new Map<string, PointClockState>();
+  let pointClockTicker: number | null = null;
+  let requestUiRefresh: (() => void) | null = null;
+
+  const ensurePointClockTicker = () => {
+    const shouldRun = pointClockStates.size > 0;
+    if (shouldRun && pointClockTicker === null) {
+      pointClockTicker = window.setInterval(() => {
+        requestUiRefresh?.();
+      }, 200);
+    } else if (!shouldRun && pointClockTicker !== null) {
+      window.clearInterval(pointClockTicker);
+      pointClockTicker = null;
+    }
+  };
+
+  const clearPointClock = (pointId: string) => {
+    if (pointClockStates.delete(pointId)) {
+      ensurePointClockTicker();
+    }
+  };
+
+  const setPointClock = (pointId: string, state: PointClockState) => {
+    pointClockStates.set(pointId, state);
+    ensurePointClockTicker();
+  };
+
+  const buildPointClockView = (
+    pointIds: string[]
+  ): Record<string, { phase: "debounce" | "queue"; progress: number; title: string }> => {
+    const now = Date.now();
+    const view: Record<string, { phase: "debounce" | "queue"; progress: number; title: string }> =
+      {};
+
+    for (const pointId of pointIds) {
+      const state = pointClockStates.get(pointId);
+      if (!state) continue;
+
+      const remainingMs = Math.max(0, state.targetAt - now);
+      const baseDuration = Math.max(1, state.durationMs);
+      const countdownProgress = Math.max(0, Math.min(1, remainingMs / baseDuration));
+
+      if (state.phase === "debounce") {
+        const remainingSeconds = (Math.ceil(remainingMs / 100) / 10).toFixed(1);
+        view[pointId] = {
+          phase: "debounce",
+          progress: countdownProgress,
+          title: `Debouncing: ${remainingSeconds}s`
+        };
+      } else {
+        if (remainingMs > 0) {
+          const remainingSeconds = (Math.ceil(remainingMs / 100) / 10).toFixed(1);
+          view[pointId] = {
+            phase: "queue",
+            progress: countdownProgress,
+            title: `Queue wait: ${remainingSeconds}s`
+          };
+        } else {
+          const queuedForMs = Math.max(0, now - state.startedAt);
+          view[pointId] = {
+            phase: "queue",
+            progress: ((queuedForMs % 2000) / 2000),
+            title: `Queued: ${(Math.ceil(queuedForMs / 100) / 10).toFixed(1)}s`
+          };
+        }
+      }
+    }
+
+    return view;
+  };
 
   const clearPointAddressTimer = (pointId: string) => {
     const timer = pointAddressTimers.get(pointId);
@@ -56,6 +134,7 @@ export function createApp(root: HTMLElement): void {
       window.clearTimeout(timer);
       pointAddressTimers.delete(pointId);
     }
+    clearPointClock(pointId);
   };
 
   const schedulePointAddressRefresh = (
@@ -66,11 +145,37 @@ export function createApp(root: HTMLElement): void {
     delayMs: number
   ) => {
     clearPointAddressTimer(pointId);
+    const now = Date.now();
+    setPointClock(pointId, {
+      phase: "debounce",
+      startedAt: now,
+      targetAt: now + Math.max(0, delayMs),
+      durationMs: Math.max(1, delayMs)
+    });
 
     const timer = window.setTimeout(async () => {
       pointAddressTimers.delete(pointId);
       try {
-        const label = await reverseGeocodeLabel({ lat, lon });
+        const label = await reverseGeocodeLabel(
+          { lat, lon },
+          {
+            onQueued: ({ estimatedWaitMs }) => {
+              const queuedNow = Date.now();
+              setPointClock(pointId, {
+                phase: "queue",
+                startedAt: queuedNow,
+                targetAt: queuedNow + Math.max(0, estimatedWaitMs),
+                durationMs: Math.max(1, estimatedWaitMs)
+              });
+              requestUiRefresh?.();
+            },
+            onStarted: () => {
+              clearPointClock(pointId);
+              requestUiRefresh?.();
+            }
+          }
+        );
+        clearPointClock(pointId);
         store.update((draft) => {
           const station = draft.stations.find((item) => item.id === stationId);
           const point = station?.walkPoints.find((item) => item.id === pointId);
@@ -87,6 +192,7 @@ export function createApp(root: HTMLElement): void {
           return draft;
         });
       } catch {
+        clearPointClock(pointId);
         store.update((draft) => {
           const station = draft.stations.find((item) => item.id === stationId);
           const point = station?.walkPoints.find((item) => item.id === pointId);
@@ -244,7 +350,9 @@ export function createApp(root: HTMLElement): void {
           }
           return draft;
         });
-        statusText = store.getState().ui.selectedPointId ? "Point selected." : "Point deselected.";
+        const selectedNow = store.getState().ui.selectedPointId;
+        scrollSelectedIntoView = Boolean(selectedNow);
+        statusText = selectedNow ? "Point selected." : "Point deselected.";
         render();
       },
       onViewChange: (point, zoom) => {
@@ -518,6 +626,8 @@ export function createApp(root: HTMLElement): void {
       window.clearTimeout(timer);
     }
     pointAddressTimers.clear();
+    pointClockStates.clear();
+    ensurePointClockTicker();
     store.reset();
     mode = "idle";
     nearbyCandidates = [];
@@ -530,6 +640,8 @@ export function createApp(root: HTMLElement): void {
 
   const render = () => {
     const state = store.getState();
+    const activeStation = state.stations.find((item) => item.id === state.ui.activeStationId);
+    const pointClocks = buildPointClockView(activeStation?.walkPoints.map((point) => point.id) ?? []);
 
     map.render({
       stations: state.stations,
@@ -557,6 +669,8 @@ export function createApp(root: HTMLElement): void {
         randomCount: state.randomPointDefaults.count,
         randomRadiusM: state.randomPointDefaults.radiusM,
         nearbyCandidates,
+        pointClocks,
+        scrollSelectedIntoView,
         generationProgress: generationProgress ?? undefined,
         report: generationArtifacts?.report,
         canDownload: Boolean(generationArtifacts && generationArtifacts.files.length > 0),
@@ -623,6 +737,7 @@ export function createApp(root: HTMLElement): void {
           if (point) {
             map.focusOnPoint({ lat: point.lat, lon: point.lon });
           }
+          scrollSelectedIntoView = false;
           render();
         },
         onDeletePoint: (stationId, pointId) => {
@@ -662,7 +777,10 @@ export function createApp(root: HTMLElement): void {
         onResetAll: resetAll
       }
     );
+    scrollSelectedIntoView = false;
   };
+
+  requestUiRefresh = render;
 
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Delete" && event.key !== "Backspace") {
