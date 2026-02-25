@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Enable GitHub Pages self-deployment via GitHub Actions for the browser-only app.
+Fix marker selection edge cases and switch point labels to reverse-geocoded read-only addresses.
 
 ## CURRENT_SUBTASK
-Workflow and Vite config updated; running verification.
+Completed implementation and verification (`npm run test:run`, `npm run build`).
 
 ## ARCHITECTURE_FACTS
 - App is fully browser-only (no backend).
@@ -28,6 +28,17 @@ Workflow and Vite config updated; running verification.
   - builds with `npm ci` + `npm run build`,
   - deploys `dist/` using `actions/upload-pages-artifact` and `actions/deploy-pages`.
 - Vite base path is `./` in `vite.config.ts` to keep assets working on project Pages URLs.
+- Point editing behavior:
+  - no editable lat/lon fields for stations or walk points in UI,
+  - clicking existing map station always sets active station (mode-independent),
+  - clicking existing walk point selects/deselects it (mode-independent),
+  - selected walk point can be moved by clicking another map location,
+  - selected walk point can be deleted with Delete/Backspace (when focus is not in an input).
+- UI persistence includes `ui.selectedPointId` in localStorage state.
+- Address labels:
+  - walk-point labels are read-only in UI,
+  - labels are resolved via reverse geocoding (`src/lib/geocode.ts`) on creation,
+  - moving a selected point debounces address lookup by 2 seconds; each move resets the timer.
 
 ## KNOWN_LIMITS
 - ORS and Overpass CORS/rate limits are external constraints.

@@ -4,12 +4,14 @@ import type { GeneratedTrip, LatLon, StationRecord } from "../lib/types";
 export interface MapCallbacks {
   onMapClick: (point: LatLon) => void;
   onStationClick: (stationId: string) => void;
+  onPointClick: (stationId: string, pointId: string) => void;
   onViewChange: (point: LatLon, zoom: number) => void;
 }
 
 export interface MapRenderModel {
   stations: StationRecord[];
   activeStationId: string | null;
+  selectedPointId: string | null;
   selectedOriginStationId: string | null;
   selectedDestinationStationId: string | null;
   previewTrips: GeneratedTrip[];
@@ -37,10 +39,10 @@ export class MapView {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(this.map);
 
-    this.stationLayer = L.layerGroup().addTo(this.map);
-    this.pointLayer = L.layerGroup().addTo(this.map);
     this.previewLayer = L.layerGroup().addTo(this.map);
     this.circleLayer = L.layerGroup().addTo(this.map);
+    this.stationLayer = L.layerGroup().addTo(this.map);
+    this.pointLayer = L.layerGroup().addTo(this.map);
 
     this.map.on("click", (event: L.LeafletMouseEvent) => {
       this.callbacks.onMapClick({ lat: event.latlng.lat, lon: event.latlng.lng });
@@ -77,10 +79,14 @@ export class MapView {
         color,
         fillColor: color,
         fillOpacity: isActive ? 0.95 : 0.85,
-        weight: 2
+        weight: 2,
+        bubblingMouseEvents: false
       });
       marker.bindTooltip(station.name, { direction: "top" });
-      marker.on("click", () => this.callbacks.onStationClick(station.id));
+      marker.on("click", (event: L.LeafletMouseEvent) => {
+        L.DomEvent.stop(event);
+        this.callbacks.onStationClick(station.id);
+      });
       marker.addTo(this.stationLayer);
 
       if (isOrigin || isDestination) {
@@ -89,7 +95,8 @@ export class MapView {
           color,
           fillColor: color,
           fillOpacity: 0.09,
-          weight: 1.2
+          weight: 1.2,
+          interactive: false
         }).addTo(this.circleLayer);
       }
     }
@@ -97,15 +104,21 @@ export class MapView {
     const activeStation = model.activeStationId ? stationById.get(model.activeStationId) : undefined;
     if (activeStation) {
       for (const point of activeStation.walkPoints) {
-        L.circleMarker([point.lat, point.lon], {
-          radius: 5,
-          color: "#f97316",
-          fillColor: "#fb923c",
-          fillOpacity: 0.95,
-          weight: 1.5
-        })
-          .bindTooltip(point.label || point.id, { direction: "top" })
-          .addTo(this.pointLayer);
+        const isSelected = point.id === model.selectedPointId;
+        const marker = L.circleMarker([point.lat, point.lon], {
+          radius: isSelected ? 7 : 5,
+          color: isSelected ? "#b45309" : "#f97316",
+          fillColor: isSelected ? "#facc15" : "#fb923c",
+          fillOpacity: 0.96,
+          weight: isSelected ? 2.2 : 1.5,
+          bubblingMouseEvents: false
+        });
+        marker.bindTooltip(point.label || point.id, { direction: "top" });
+        marker.on("click", (event: L.LeafletMouseEvent) => {
+          L.DomEvent.stop(event);
+          this.callbacks.onPointClick(activeStation.id, point.id);
+        });
+        marker.addTo(this.pointLayer);
       }
     }
 

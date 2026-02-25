@@ -34,6 +34,7 @@ export interface AppState {
   };
   ui: {
     activeStationId: string | null;
+    selectedPointId: string | null;
     mapCenter: {
       lat: number;
       lon: number;

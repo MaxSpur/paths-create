@@ -88,6 +88,7 @@ function normalizeState(raw: unknown): AppState | null {
     },
     ui: {
       activeStationId: typeof ui.activeStationId === "string" ? ui.activeStationId : null,
+      selectedPointId: typeof ui.selectedPointId === "string" ? ui.selectedPointId : null,
       mapCenter: {
         lat: isFiniteNumber(uiMapCenter.lat) ? uiMapCenter.lat : 52.52,
         lon: isFiniteNumber(uiMapCenter.lon) ? uiMapCenter.lon : 13.405
@@ -105,6 +106,15 @@ function normalizeState(raw: unknown): AppState | null {
   }
   if (normalized.ui.activeStationId && !stationIds.has(normalized.ui.activeStationId)) {
     normalized.ui.activeStationId = null;
+  }
+  if (normalized.ui.activeStationId && normalized.ui.selectedPointId) {
+    const activeStation = stations.find((station) => station.id === normalized.ui.activeStationId);
+    const pointExists = activeStation?.walkPoints.some((point) => point.id === normalized.ui.selectedPointId);
+    if (!pointExists) {
+      normalized.ui.selectedPointId = null;
+    }
+  } else {
+    normalized.ui.selectedPointId = null;
   }
 
   return normalized;
@@ -128,6 +138,7 @@ export function createDefaultState(): AppState {
     },
     ui: {
       activeStationId: null,
+      selectedPointId: null,
       mapCenter: {
         lat: 52.52,
         lon: 13.405

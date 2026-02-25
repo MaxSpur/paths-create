@@ -5,6 +5,7 @@ export interface PanelModel {
   busy: boolean;
   stations: StationRecord[];
   activeStationId: string | null;
+  selectedPointId: string | null;
   selectedOriginStationId: string | null;
   selectedDestinationStationId: string | null;
   orsApiKey: string;
@@ -30,8 +31,8 @@ export interface PanelCallbacks {
   onSetDestinationStation: (stationId: string) => void;
   onSetActiveStation: (stationId: string) => void;
   onDeleteStation: (stationId: string) => void;
-  onUpdateStation: (stationId: string, patch: Partial<Pick<StationRecord, "name" | "lat" | "lon" | "radiusM">>) => void;
-  onUpdatePoint: (stationId: string, pointId: string, patch: Partial<WalkPoint>) => void;
+  onUpdateStation: (stationId: string, patch: Partial<Pick<StationRecord, "name" | "radiusM">>) => void;
+  onSelectPoint: (stationId: string, pointId: string) => void;
   onDeletePoint: (stationId: string, pointId: string) => void;
   onMovePoint: (stationId: string, pointId: string, direction: "up" | "down") => void;
   onGenerateRandomPoints: (stationId: string, count: number, radiusM: number) => void;
@@ -48,11 +49,20 @@ function stationOption(station: StationRecord, selectedId: string | null): strin
   return `<option value="${station.id}" ${selectedId === station.id ? "selected" : ""}>${station.name}</option>`;
 }
 
-function pointRow(point: WalkPoint): string {
-  return `<tr data-point-id="${point.id}">
-    <td><input data-point-label type="text" value="${point.label ?? ""}" placeholder="label" /></td>
-    <td><input data-point-lat type="number" step="0.000001" value="${point.lat}" /></td>
-    <td><input data-point-lon type="number" step="0.000001" value="${point.lon}" /></td>
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function pointRow(point: WalkPoint, selectedPointId: string | null): string {
+  const isSelected = point.id === selectedPointId;
+  const label = point.label?.trim() || "Resolving address...";
+  return `<tr data-point-id="${point.id}" class="${isSelected ? "is-selected" : ""}">
+    <td><span class="point-label">${escapeHtml(label)}</span></td>
     <td class="point-actions">
       <button data-point-up type="button">↑</button>
       <button data-point-down type="button">↓</button>
@@ -72,8 +82,7 @@ function stationCard(station: StationRecord, model: PanelModel): string {
       <span>${station.walkPoints.length} points</span>
     </div>
     <div class="station-coords-row">
-      <label>Lat <input data-station-lat type="number" step="0.000001" value="${station.lat}" /></label>
-      <label>Lon <input data-station-lon type="number" step="0.000001" value="${station.lon}" /></label>
+      <span class="station-coords-text">${station.lat.toFixed(5)}, ${station.lon.toFixed(5)}</span>
       <label>Radius m <input data-station-radius type="number" step="10" min="20" value="${station.radiusM}" /></label>
     </div>
     <div class="station-btn-row">
@@ -157,15 +166,16 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         activeStation
           ? `
           <div><strong>${activeStation.name}</strong></div>
+          <div class="points-help">Click a map point to select it. Click map elsewhere to move selected point. Press Delete/Backspace to remove selected point.</div>
           <div class="btn-row">
             <label>Random count <input id="randomCount" type="number" min="1" value="${model.randomCount}" /></label>
             <label>Random radius m <input id="randomRadius" type="number" min="20" step="10" value="${model.randomRadiusM}" /></label>
             <button id="addRandomPoints" type="button">Generate random points</button>
           </div>
           <table class="points-table">
-            <thead><tr><th>Label</th><th>Lat</th><th>Lon</th><th>Actions</th></tr></thead>
+            <thead><tr><th>Label</th><th>Actions</th></tr></thead>
             <tbody>
-              ${activeStation.walkPoints.map((point) => pointRow(point)).join("")}
+              ${activeStation.walkPoints.map((point) => pointRow(point, model.selectedPointId)).join("")}
             </tbody>
           </table>
         `
@@ -242,12 +252,6 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
     const nameInput = stationElement.querySelector<HTMLInputElement>("[data-station-name]");
     nameInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { name: nameInput.value }));
 
-    const latInput = stationElement.querySelector<HTMLInputElement>("[data-station-lat]");
-    latInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { lat: Number(latInput.value) }));
-
-    const lonInput = stationElement.querySelector<HTMLInputElement>("[data-station-lon]");
-    lonInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { lon: Number(lonInput.value) }));
-
     const radiusInput = stationElement.querySelector<HTMLInputElement>("[data-station-radius]");
     radiusInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { radiusM: Number(radiusInput.value) }));
   }
@@ -270,18 +274,27 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
       const pointId = row.dataset.pointId;
       if (!pointId) continue;
 
-      const labelInput = row.querySelector<HTMLInputElement>("[data-point-label]");
-      labelInput?.addEventListener("change", () => callbacks.onUpdatePoint(activeStation.id, pointId, { label: labelInput.value }));
+      row.addEventListener("click", () => callbacks.onSelectPoint(activeStation.id, pointId));
 
-      const latInput = row.querySelector<HTMLInputElement>("[data-point-lat]");
-      latInput?.addEventListener("change", () => callbacks.onUpdatePoint(activeStation.id, pointId, { lat: Number(latInput.value) }));
+      row.querySelector<HTMLButtonElement>("[data-point-delete]")?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        callbacks.onDeletePoint(activeStation.id, pointId);
+      });
+      row.querySelector<HTMLButtonElement>("[data-point-up]")?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        callbacks.onMovePoint(activeStation.id, pointId, "up");
+      });
+      row.querySelector<HTMLButtonElement>("[data-point-down]")?.addEventListener("click", (event) => {
+        event.stopPropagation();
+        callbacks.onMovePoint(activeStation.id, pointId, "down");
+      });
+    }
 
-      const lonInput = row.querySelector<HTMLInputElement>("[data-point-lon]");
-      lonInput?.addEventListener("change", () => callbacks.onUpdatePoint(activeStation.id, pointId, { lon: Number(lonInput.value) }));
-
-      row.querySelector<HTMLButtonElement>("[data-point-delete]")?.addEventListener("click", () => callbacks.onDeletePoint(activeStation.id, pointId));
-      row.querySelector<HTMLButtonElement>("[data-point-up]")?.addEventListener("click", () => callbacks.onMovePoint(activeStation.id, pointId, "up"));
-      row.querySelector<HTMLButtonElement>("[data-point-down]")?.addEventListener("click", () => callbacks.onMovePoint(activeStation.id, pointId, "down"));
+    if (model.selectedPointId) {
+      const selectedRow = container.querySelector<HTMLElement>(`tr[data-point-id="${model.selectedPointId}"]`);
+      if (selectedRow) {
+        selectedRow.scrollIntoView({ block: "nearest" });
+      }
     }
   }
 

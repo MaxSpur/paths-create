@@ -128,8 +128,15 @@ body,
 
 .station-coords-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
+  align-items: end;
+}
+
+.station-coords-text {
+  font-size: 0.72rem;
+  color: #64748b;
+  align-self: center;
 }
 
 .station-btn-row {
@@ -155,6 +162,30 @@ body,
 }
 
 .point-actions {
+  white-space: nowrap;
+}
+
+.points-help {
+  margin: 4px 0 8px;
+  font-size: 0.74rem;
+  color: #475569;
+}
+
+.points-table tr {
+  cursor: pointer;
+}
+
+.points-table tr.is-selected td {
+  background: #ecfeff;
+}
+
+.point-label {
+  display: inline-block;
+  max-width: 220px;
+  font-size: 0.78rem;
+  color: #0f172a;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
