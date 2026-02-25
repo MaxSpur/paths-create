@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Implement browser-only transit track generator (Leaflet + Vite + TS) with station-scoped point pools, persistent localStorage state, OSM/ORS route composition, GPX zip export, and tests.
+Enable GitHub Pages self-deployment via GitHub Actions for the browser-only app.
 
 ## CURRENT_SUBTASK
-Implementation complete. Latest pass validated with `npm run test:run` and `npm run build`.
+Workflow and Vite config updated; running verification.
 
 ## ARCHITECTURE_FACTS
 - App is fully browser-only (no backend).
@@ -23,6 +23,11 @@ Implementation complete. Latest pass validated with `npm run test:run` and `npm 
 - Export path: GPX files are downloaded as ZIP via `src/lib/exportZip.ts`.
 - TS build safety:
   - `tsconfig.app.json` and `tsconfig.node.json` set `noEmit: true` to prevent accidental JS output into `src/`.
+- GitHub Pages deploy workflow is defined in `.github/workflows/deploy.yml`:
+  - triggers on `push` to `main`/`master` and manual dispatch,
+  - builds with `npm ci` + `npm run build`,
+  - deploys `dist/` using `actions/upload-pages-artifact` and `actions/deploy-pages`.
+- Vite base path is `./` in `vite.config.ts` to keep assets working on project Pages URLs.
 
 ## KNOWN_LIMITS
 - ORS and Overpass CORS/rate limits are external constraints.

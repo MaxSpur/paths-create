@@ -47,6 +47,13 @@ npm run test:run
 npm run build
 ```
 
+## GitHub Pages Deployment
+
+- Deployment workflow is at `.github/workflows/deploy.yml`.
+- It runs on pushes to `main` or `master`, and on manual dispatch.
+- It builds with `npm ci && npm run build` and deploys `dist/` via `actions/deploy-pages`.
+- Keep GitHub Pages source set to `GitHub Actions` in repository settings.
+
 ## Notes
 
 - This app has no backend; API calls are made directly from the browser.
