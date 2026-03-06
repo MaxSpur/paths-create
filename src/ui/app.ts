@@ -320,10 +320,12 @@ export function createApp(root: HTMLElement): void {
     });
 
     if (focusMap) {
-      const station = getStation(stationId);
-      if (station) {
-        map.focusOnStation(station);
-      }
+      window.requestAnimationFrame(() => {
+        const station = getStation(stationId);
+        if (station) {
+          map.focusOnStation(station);
+        }
+      });
     }
   };
 

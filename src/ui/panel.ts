@@ -112,6 +112,7 @@ function stationCard(station: StationRecord, model: PanelModel): string {
   const isActive = station.id === model.activeStationId;
   const isOrigin = station.id === model.selectedOriginStationId;
   const isDestination = station.id === model.selectedDestinationStationId;
+  const radiusReadout = formatStationRadius(station.radiusM);
 
   return `<div class="station-card" data-station-id="${station.id}">
     <div class="station-title-row">
@@ -120,18 +121,22 @@ function stationCard(station: StationRecord, model: PanelModel): string {
     </div>
     <div class="station-coords-row">
       <span class="station-coords-text">${station.lat.toFixed(5)}, ${station.lon.toFixed(5)}</span>
-      <label class="station-radius-field">
-        <span>Radius <strong>${formatStationRadius(station.radiusM)}</strong></span>
-        <input
-          data-station-radius-slider
-          type="range"
-          min="0"
-          max="${STATION_RADIUS_SLIDER_STEPS}"
-          step="1"
-          value="${stationRadiusMetersToSlider(station.radiusM)}"
-        />
-      </label>
     </div>
+    <label class="station-radius-field">
+      <span class="station-radius-header">
+        <span>Radius</span>
+        <strong data-station-radius-readout>${radiusReadout}</strong>
+      </span>
+      <input
+        data-station-radius-slider
+        type="range"
+        min="0"
+        max="${STATION_RADIUS_SLIDER_STEPS}"
+        step="1"
+        value="${stationRadiusMetersToSlider(station.radiusM)}"
+        aria-label="Station radius"
+      />
+    </label>
     <div class="station-btn-row">
       <button data-set-active type="button" ${isActive ? "disabled" : ""}>${isActive ? "Active" : "Set active"}</button>
       <button data-set-origin type="button" ${isOrigin ? "disabled" : ""}>${isOrigin ? "Origin" : "Set origin"}</button>
@@ -324,11 +329,19 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
     nameInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { name: nameInput.value }));
 
     const radiusInput = stationElement.querySelector<HTMLInputElement>("[data-station-radius-slider]");
-    radiusInput?.addEventListener("input", () =>
+    const radiusReadout = stationElement.querySelector<HTMLElement>("[data-station-radius-readout]");
+    const updateRadiusReadout = () => {
+      if (!radiusInput || !radiusReadout) return;
+      radiusReadout.textContent = formatStationRadius(stationRadiusSliderToMeters(Number(radiusInput.value)));
+    };
+
+    radiusInput?.addEventListener("input", updateRadiusReadout);
+    radiusInput?.addEventListener("change", () => {
+      if (!radiusInput) return;
       callbacks.onUpdateStation(stationId, {
         radiusM: stationRadiusSliderToMeters(Number(radiusInput.value))
-      })
-    );
+      });
+    });
   }
 
   if (activeStation) {

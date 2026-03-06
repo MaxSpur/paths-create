@@ -64,10 +64,9 @@ export class MapView {
   }
 
   focusOnStation(station: StationRecord): void {
-    const bounds = L.circle([station.lat, station.lon], {
-      radius: station.radiusM
-    }).getBounds();
-    this.map.flyToBounds(bounds.pad(0.35), {
+    const bounds = L.latLng(station.lat, station.lon).toBounds(Math.max(station.radiusM * 2, 10));
+    this.map.invalidateSize();
+    this.map.fitBounds(bounds.pad(0.35), {
       animate: true,
       duration: 0.45,
       maxZoom: 18,

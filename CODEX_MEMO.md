@@ -4,7 +4,7 @@
 Unify station/point map interactions and station-radius editing UX.
 
 ## CURRENT_SUBTASK
-Completed station-radius-driven interaction cleanup; verified with `npm run test:run` and `npm run build`.
+Completed station-radius-driven interaction cleanup plus follow-up fixes for sidebar station focus, non-janky radius-slider dragging, and Leaflet detached-circle bounds bug; verified with `npm run test:run` and `npm run build`.
 
 ## ARCHITECTURE_FACTS
 - App is fully browser-only (no backend).
@@ -50,6 +50,8 @@ Completed station-radius-driven interaction cleanup; verified with `npm run test
   - active station radius is always drawn and setting active station focuses the map to show the full radius,
   - station radius is now the single source of truth for add-point hit testing and random point generation,
   - sidebar point-row clicks now toggle selection the same way map point clicks do.
+  - station radius slider updates its local readout on `input` and only commits app state on `change`, so dragging is smooth and does not rerender the whole panel mid-drag.
+  - map refocus uses `L.latLng(...).toBounds(...)` instead of `L.circle(...).getBounds()` because detached circles throw in Leaflet when no `_map` is attached yet.
 - UI persistence includes `ui.selectedPointId` in localStorage state.
 - Address labels:
   - walk-point labels are read-only in UI,
