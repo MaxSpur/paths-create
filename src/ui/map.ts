@@ -63,6 +63,18 @@ export class MapView {
     this.map.panTo([point.lat, point.lon], { animate: true, duration: 0.35 });
   }
 
+  focusOnStation(station: StationRecord): void {
+    const bounds = L.circle([station.lat, station.lon], {
+      radius: station.radiusM
+    }).getBounds();
+    this.map.flyToBounds(bounds.pad(0.35), {
+      animate: true,
+      duration: 0.45,
+      maxZoom: 18,
+      padding: [28, 28]
+    });
+  }
+
   render(model: MapRenderModel): void {
     this.stationLayer.clearLayers();
     this.pointLayer.clearLayers();
@@ -93,13 +105,13 @@ export class MapView {
       });
       marker.addTo(this.stationLayer);
 
-      if (isOrigin || isDestination) {
+      if (isActive || isOrigin || isDestination) {
         L.circle([station.lat, station.lon], {
           radius: station.radiusM,
           color,
           fillColor: color,
-          fillOpacity: 0.09,
-          weight: 1.2,
+          fillOpacity: isActive ? 0.14 : 0.09,
+          weight: isActive ? 1.8 : 1.2,
           interactive: false
         }).addTo(this.circleLayer);
       }

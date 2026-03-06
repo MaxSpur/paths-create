@@ -1,4 +1,10 @@
 import type { GenerationReport, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import {
+  formatStationRadius,
+  STATION_RADIUS_SLIDER_STEPS,
+  stationRadiusMetersToSlider,
+  stationRadiusSliderToMeters
+} from "../lib/stationRadius";
 
 export interface PanelModel {
   mode: "idle" | "add_station" | "add_point";
@@ -13,7 +19,6 @@ export interface PanelModel {
   tripCount: number;
   seed?: number;
   randomCount: number;
-  randomRadiusM: number;
   nearbyCandidates: StationCandidate[];
   pointClocks: Record<
     string,
@@ -51,8 +56,8 @@ export interface PanelCallbacks {
   onSelectPoint: (stationId: string, pointId: string) => void;
   onDeletePoint: (stationId: string, pointId: string) => void;
   onMovePoint: (stationId: string, pointId: string, direction: "up" | "down") => void;
-  onGenerateRandomPoints: (stationId: string, count: number, radiusM: number) => void;
-  onRandomDefaultsChange: (count: number, radiusM: number) => void;
+  onGenerateRandomPoints: (stationId: string, count: number) => void;
+  onRandomDefaultsChange: (count: number) => void;
   onTripCountChange: (tripCount: number) => void;
   onSeedChange: (seed?: number) => void;
   onGenerate: () => void;
@@ -115,7 +120,17 @@ function stationCard(station: StationRecord, model: PanelModel): string {
     </div>
     <div class="station-coords-row">
       <span class="station-coords-text">${station.lat.toFixed(5)}, ${station.lon.toFixed(5)}</span>
-      <label>Radius m <input data-station-radius type="number" step="10" min="20" value="${station.radiusM}" /></label>
+      <label class="station-radius-field">
+        <span>Radius <strong>${formatStationRadius(station.radiusM)}</strong></span>
+        <input
+          data-station-radius-slider
+          type="range"
+          min="0"
+          max="${STATION_RADIUS_SLIDER_STEPS}"
+          step="1"
+          value="${stationRadiusMetersToSlider(station.radiusM)}"
+        />
+      </label>
     </div>
     <div class="station-btn-row">
       <button data-set-active type="button" ${isActive ? "disabled" : ""}>${isActive ? "Active" : "Set active"}</button>
@@ -220,10 +235,10 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         activeStation
           ? `
           <div><strong>${activeStation.name}</strong></div>
-          <div class="points-help">Click a map point to select it. Click map elsewhere to move selected point. Press Delete/Backspace to remove selected point.</div>
+          <div class="points-help">Click a map point to select it. In add-point mode, clicks inside the active station radius add a point or move the selected point. Clicks outside the radius deselect the point or activate another station if its radius was hit.</div>
           <div class="btn-row">
             <label>Random count <input id="randomCount" type="number" min="1" value="${model.randomCount}" /></label>
-            <label>Random radius m <input id="randomRadius" type="number" min="20" step="10" value="${model.randomRadiusM}" /></label>
+            <div class="station-radius-note">Uses station radius ${formatStationRadius(activeStation.radiusM)}</div>
             <button id="addRandomPoints" type="button">Generate random points</button>
           </div>
           <table class="points-table">
@@ -308,22 +323,22 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
     const nameInput = stationElement.querySelector<HTMLInputElement>("[data-station-name]");
     nameInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { name: nameInput.value }));
 
-    const radiusInput = stationElement.querySelector<HTMLInputElement>("[data-station-radius]");
-    radiusInput?.addEventListener("change", () => callbacks.onUpdateStation(stationId, { radiusM: Number(radiusInput.value) }));
+    const radiusInput = stationElement.querySelector<HTMLInputElement>("[data-station-radius-slider]");
+    radiusInput?.addEventListener("input", () =>
+      callbacks.onUpdateStation(stationId, {
+        radiusM: stationRadiusSliderToMeters(Number(radiusInput.value))
+      })
+    );
   }
 
   if (activeStation) {
     const randomCountInput = container.querySelector<HTMLInputElement>("#randomCount");
-    const randomRadiusInput = container.querySelector<HTMLInputElement>("#randomRadius");
-
     const getCount = () => Math.max(1, Number(randomCountInput?.value ?? model.randomCount));
-    const getRadius = () => Math.max(20, Number(randomRadiusInput?.value ?? model.randomRadiusM));
 
-    randomCountInput?.addEventListener("change", () => callbacks.onRandomDefaultsChange(getCount(), getRadius()));
-    randomRadiusInput?.addEventListener("change", () => callbacks.onRandomDefaultsChange(getCount(), getRadius()));
+    randomCountInput?.addEventListener("change", () => callbacks.onRandomDefaultsChange(getCount()));
 
     container.querySelector<HTMLButtonElement>("#addRandomPoints")?.addEventListener("click", () => {
-      callbacks.onGenerateRandomPoints(activeStation.id, getCount(), getRadius());
+      callbacks.onGenerateRandomPoints(activeStation.id, getCount());
     });
 
     for (const row of Array.from(container.querySelectorAll<HTMLElement>("tr[data-point-id]"))) {

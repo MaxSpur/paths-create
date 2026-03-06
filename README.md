@@ -6,6 +6,10 @@ Browser-only tool for generating synthetic transit-like GPX tracks for visualiza
 
 - Leaflet map UI with station library management.
 - Station-scoped footpath point pools (manual map clicks by default).
+- Station radius is the single source of truth for map editing and random point generation:
+  - clicking inside a station radius activates that station,
+  - add-point mode only adds or moves points inside the active station radius,
+  - the station radius editor uses an exponential slider from 5 m to 5 km.
 - Optional random point generation into a selected station pool.
 - Origin/destination station selection per generation run.
 - Synthetic trip composition:

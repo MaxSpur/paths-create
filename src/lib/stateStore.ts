@@ -1,4 +1,5 @@
 import type { AppState, StationRecord, WalkPoint } from "./types";
+import { clampStationRadiusM } from "./stationRadius";
 
 export const STORAGE_KEY = "odc.generator.state.v1";
 export const STATE_SCHEMA_VERSION = 1;
@@ -44,7 +45,7 @@ function normalizeStation(raw: unknown): StationRecord | null {
     name: raw.name,
     lat: raw.lat,
     lon: raw.lon,
-    radiusM: raw.radiusM,
+    radiusM: clampStationRadiusM(raw.radiusM),
     walkPoints: normalizedPoints
   };
 }
@@ -91,10 +92,7 @@ function normalizeState(raw: unknown): AppState | null {
     randomPointDefaults: {
       count: isFiniteNumber(randomPointDefaults.count)
         ? Math.max(1, Math.round(randomPointDefaults.count))
-        : 20,
-      radiusM: isFiniteNumber(randomPointDefaults.radiusM)
-        ? Math.max(20, randomPointDefaults.radiusM)
-        : 500
+        : 20
     },
     ui: {
       activeStationId: typeof ui.activeStationId === "string" ? ui.activeStationId : null,
@@ -143,8 +141,7 @@ export function createDefaultState(): AppState {
       pairingMode: "round_robin_shuffle"
     },
     randomPointDefaults: {
-      count: 20,
-      radiusM: 500
+      count: 20
     },
     ui: {
       activeStationId: null,

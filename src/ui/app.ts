@@ -4,9 +4,11 @@ import { generateTrips } from "../lib/generator";
 import { newId } from "../lib/ids";
 import { fetchNearbyStations } from "../lib/overpassClient";
 import { samplePointsWithinRadius } from "../lib/sampling";
+import { clampStationRadiusM, DEFAULT_STATION_RADIUS_M } from "../lib/stationRadius";
 import { createStateStore } from "../lib/stateStore";
 import type { GenerationProgressUpdate } from "../lib/generator";
-import type { GeneratedTrip, GenerationReport, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import type { GeneratedTrip, GenerationReport, LatLon, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import { resolveMapClickAction, type EditMode } from "./interaction";
 import { MapView } from "./map";
 import { renderPanel } from "./panel";
 
@@ -29,8 +31,6 @@ interface PointClockState {
   targetAt: number;
   durationMs: number;
 }
-
-type EditMode = "idle" | "add_station" | "add_point";
 
 export function createApp(root: HTMLElement): void {
   root.innerHTML = `
@@ -248,125 +248,52 @@ export function createApp(root: HTMLElement): void {
     {
       onMapClick: (point) => {
         const state = store.getState();
-        const activeStationId = state.ui.activeStationId;
-        const selectedPointId = state.ui.selectedPointId;
+        const action = resolveMapClickAction({
+          mode,
+          point,
+          stations: state.stations,
+          activeStationId: state.ui.activeStationId,
+          selectedPointId: state.ui.selectedPointId
+        });
 
-        if (activeStationId && selectedPointId) {
-          let moved = false;
-          store.update((draft) => {
-            const station = draft.stations.find((item) => item.id === activeStationId);
-            const selectedPoint = station?.walkPoints.find((item) => item.id === selectedPointId);
-            if (!selectedPoint) {
-              draft.ui.selectedPointId = null;
-              return draft;
-            }
-            selectedPoint.lat = point.lat;
-            selectedPoint.lon = point.lon;
-            selectedPoint.label = "Resolving address...";
-            selectedPoint.addressStatus = "resolving";
-            moved = true;
-            return draft;
-          });
-
-          if (moved) {
-            statusText = "Moved selected point.";
-            schedulePointAddressRefresh(
-              activeStationId,
-              selectedPointId,
-              point.lat,
-              point.lon,
-              2000
-            );
-          }
-          render();
-          return;
-        }
-
-        if (mode === "add_station") {
-          const name = `Station ${store.getState().stations.length + 1}`;
-          const station: StationRecord = {
-            id: newId("station"),
-            name,
-            lat: point.lat,
-            lon: point.lon,
-            radiusM: 500,
-            walkPoints: []
-          };
-
-          store.update((draft) => {
-            draft.stations.push(station);
-            draft.ui.activeStationId = station.id;
-            draft.ui.selectedPointId = null;
-            if (!draft.selectedOriginStationId) {
-              draft.selectedOriginStationId = station.id;
-            }
-            if (!draft.selectedDestinationStationId) {
-              draft.selectedDestinationStationId = station.id;
-            }
-            return draft;
-          });
-
-          statusText = `Added station ${name}.`;
-          render();
-          return;
-        }
-
-        if (mode === "add_point") {
-          const activeStationId = store.getState().ui.activeStationId;
-          if (!activeStationId) {
-            statusText = "Select an active station first.";
+        switch (action.type) {
+          case "activate_station":
+            setActiveStation(action.stationId);
+            statusText = "Active station set.";
             render();
             return;
-          }
-          const newPoint: WalkPoint = {
-            id: newId("pt"),
-            lat: point.lat,
-            lon: point.lon,
-            label: "Resolving address...",
-            addressStatus: "resolving"
-          };
-          store.update((draft) => {
-            const station = draft.stations.find((s) => s.id === activeStationId);
-            if (station) {
-              station.walkPoints.push(newPoint);
-              draft.ui.selectedPointId = null;
+          case "deselect_point":
+            if (clearSelectedPoint()) {
+              statusText = "Point deselected.";
+              render();
             }
-            return draft;
-          });
-          statusText = `Added point to station ${activeStationId}.`;
-          schedulePointAddressRefresh(
-            activeStationId,
-            newPoint.id,
-            newPoint.lat,
-            newPoint.lon,
-            0
-          );
-          render();
+            return;
+          case "move_point":
+            moveSelectedPoint(action.stationId, action.pointId, point);
+            render();
+            return;
+          case "add_point":
+            addPointToStation(action.stationId, point);
+            render();
+            return;
+          case "add_station":
+            addStationAtPoint(point);
+            render();
+            return;
+          case "noop":
+            return;
         }
       },
       onStationClick: (stationId) => {
-        store.update((draft) => {
-          draft.ui.activeStationId = stationId;
-          draft.ui.selectedPointId = null;
-          return draft;
-        });
-        statusText = `Active station set.`;
+        setActiveStation(stationId);
+        statusText = "Active station set.";
         render();
       },
       onPointClick: (stationId, pointId) => {
-        store.update((draft) => {
-          draft.ui.activeStationId = stationId;
-          if (draft.ui.selectedPointId === pointId) {
-            draft.ui.selectedPointId = null;
-          } else {
-            draft.ui.selectedPointId = pointId;
-          }
-          return draft;
+        togglePointSelection(stationId, pointId, {
+          focusPoint: false,
+          scrollIntoView: true
         });
-        const selectedNow = store.getState().ui.selectedPointId;
-        scrollSelectedIntoView = Boolean(selectedNow);
-        statusText = selectedNow ? "Point selected." : "Point deselected.";
-        render();
       },
       onViewChange: (point, zoom) => {
         store.update((draft) => {
@@ -378,15 +305,175 @@ export function createApp(root: HTMLElement): void {
     }
   );
 
+  const getStation = (stationId: string | null): StationRecord | null => {
+    if (!stationId) {
+      return null;
+    }
+    return store.getState().stations.find((station) => station.id === stationId) ?? null;
+  };
+
+  const setActiveStation = (stationId: string, focusMap = true) => {
+    store.update((draft) => {
+      draft.ui.activeStationId = stationId;
+      draft.ui.selectedPointId = null;
+      return draft;
+    });
+
+    if (focusMap) {
+      const station = getStation(stationId);
+      if (station) {
+        map.focusOnStation(station);
+      }
+    }
+  };
+
+  const clearSelectedPoint = (): boolean => {
+    const state = store.getState();
+    if (!state.ui.selectedPointId) {
+      return false;
+    }
+
+    store.update((draft) => {
+      draft.ui.selectedPointId = null;
+      return draft;
+    });
+    scrollSelectedIntoView = false;
+    return true;
+  };
+
+  const addStationAtPoint = (point: LatLon) => {
+    const name = `Station ${store.getState().stations.length + 1}`;
+    const station: StationRecord = {
+      id: newId("station"),
+      name,
+      lat: point.lat,
+      lon: point.lon,
+      radiusM: DEFAULT_STATION_RADIUS_M,
+      walkPoints: []
+    };
+
+    store.update((draft) => {
+      draft.stations.push(station);
+      draft.ui.activeStationId = station.id;
+      draft.ui.selectedPointId = null;
+      if (!draft.selectedOriginStationId) {
+        draft.selectedOriginStationId = station.id;
+      }
+      if (!draft.selectedDestinationStationId) {
+        draft.selectedDestinationStationId = station.id;
+      }
+      return draft;
+    });
+
+    map.focusOnStation(station);
+    statusText = `Added station ${name}.`;
+  };
+
+  const addPointToStation = (stationId: string, point: LatLon) => {
+    const station = getStation(stationId);
+    if (!station) {
+      statusText = "Select an active station first.";
+      return;
+    }
+
+    const newPoint: WalkPoint = {
+      id: newId("pt"),
+      lat: point.lat,
+      lon: point.lon,
+      label: "Resolving address...",
+      addressStatus: "resolving"
+    };
+
+    store.update((draft) => {
+      const targetStation = draft.stations.find((item) => item.id === stationId);
+      if (!targetStation) {
+        return draft;
+      }
+      targetStation.walkPoints.push(newPoint);
+      draft.ui.selectedPointId = null;
+      return draft;
+    });
+
+    schedulePointAddressRefresh(stationId, newPoint.id, newPoint.lat, newPoint.lon, 0);
+    statusText = `Added point to ${station.name}.`;
+  };
+
+  const moveSelectedPoint = (stationId: string, pointId: string, point: LatLon) => {
+    let moved = false;
+    let stationName = stationId;
+
+    store.update((draft) => {
+      const station = draft.stations.find((item) => item.id === stationId);
+      if (!station) {
+        draft.ui.selectedPointId = null;
+        return draft;
+      }
+
+      const selectedPoint = station.walkPoints.find((item) => item.id === pointId);
+      if (!selectedPoint) {
+        draft.ui.selectedPointId = null;
+        return draft;
+      }
+
+      stationName = station.name;
+      selectedPoint.lat = point.lat;
+      selectedPoint.lon = point.lon;
+      selectedPoint.label = "Resolving address...";
+      selectedPoint.addressStatus = "resolving";
+      moved = true;
+      return draft;
+    });
+
+    if (!moved) {
+      statusText = "Point deselected.";
+      return;
+    }
+
+    schedulePointAddressRefresh(stationId, pointId, point.lat, point.lon, 2000);
+    statusText = `Moved selected point in ${stationName}.`;
+  };
+
+  const togglePointSelection = (
+    stationId: string,
+    pointId: string,
+    options: { focusPoint: boolean; scrollIntoView: boolean }
+  ) => {
+    const state = store.getState();
+    const station = state.stations.find((item) => item.id === stationId);
+    const point = station?.walkPoints.find((item) => item.id === pointId);
+    if (!station || !point) {
+      return;
+    }
+
+    const isAlreadySelected =
+      state.ui.activeStationId === stationId && state.ui.selectedPointId === pointId;
+
+    store.update((draft) => {
+      draft.ui.activeStationId = stationId;
+      draft.ui.selectedPointId = isAlreadySelected ? null : pointId;
+      return draft;
+    });
+
+    if (!isAlreadySelected && options.focusPoint) {
+      map.focusOnPoint({ lat: point.lat, lon: point.lon });
+    }
+
+    scrollSelectedIntoView = !isAlreadySelected && options.scrollIntoView;
+    statusText = isAlreadySelected ? "Point deselected." : "Point selected.";
+    render();
+  };
+
   const setStationSelection = (stationId: string, role: "origin" | "destination" | "active") => {
+    if (role === "active") {
+      setActiveStation(stationId);
+      return;
+    }
+
     store.update((draft) => {
       if (role === "origin") {
         draft.selectedOriginStationId = stationId;
-      } else if (role === "destination") {
-        draft.selectedDestinationStationId = stationId;
       } else {
-        draft.ui.activeStationId = stationId;
-        draft.ui.selectedPointId = null;
+        draft.selectedDestinationStationId = stationId;
       }
       return draft;
     });
@@ -426,7 +513,7 @@ export function createApp(root: HTMLElement): void {
       if (!station) return draft;
       if (patch.name !== undefined) station.name = patch.name;
       if (patch.radiusM !== undefined && Number.isFinite(patch.radiusM)) {
-        station.radiusM = Math.max(20, patch.radiusM);
+        station.radiusM = clampStationRadiusM(patch.radiusM);
       }
       return draft;
     });
@@ -470,7 +557,7 @@ export function createApp(root: HTMLElement): void {
     return true;
   };
 
-  const addRandomPoints = (stationId: string, count: number, radiusM: number) => {
+  const addRandomPoints = (stationId: string, count: number) => {
     const state = store.getState();
     const station = state.stations.find((item) => item.id === stationId);
     if (!station) return;
@@ -478,7 +565,7 @@ export function createApp(root: HTMLElement): void {
     const sampledPoints = samplePointsWithinRadius(
       { lat: station.lat, lon: station.lon },
       count,
-      radiusM,
+      station.radiusM,
       Math.random,
       "rnd"
     );
@@ -493,13 +580,13 @@ export function createApp(root: HTMLElement): void {
       if (!target) return draft;
       target.walkPoints.push(...randomPoints);
       draft.randomPointDefaults.count = count;
-      draft.randomPointDefaults.radiusM = radiusM;
       return draft;
     });
 
     randomPoints.forEach((point, index) => {
       schedulePointAddressRefresh(stationId, point.id, point.lat, point.lon, index * 50);
     });
+    statusText = `Added ${randomPoints.length} random points inside ${station.name}.`;
   };
 
   const findNearbyStations = async () => {
@@ -531,7 +618,7 @@ export function createApp(root: HTMLElement): void {
         name: candidate.name,
         lat: candidate.lat,
         lon: candidate.lon,
-        radiusM: 500,
+        radiusM: DEFAULT_STATION_RADIUS_M,
         walkPoints: []
       });
       draft.ui.activeStationId = stationId;
@@ -541,6 +628,10 @@ export function createApp(root: HTMLElement): void {
       return draft;
     });
 
+    const station = getStation(stationId);
+    if (station) {
+      map.focusOnStation(station);
+    }
     statusText = `Added station ${candidate.name}.`;
     render();
   };
@@ -680,7 +771,6 @@ export function createApp(root: HTMLElement): void {
         tripCount: state.generation.tripCount,
         seed: state.generation.seed,
         randomCount: state.randomPointDefaults.count,
-        randomRadiusM: state.randomPointDefaults.radiusM,
         nearbyCandidates,
         pointClocks,
         scrollSelectedIntoView,
@@ -692,7 +782,15 @@ export function createApp(root: HTMLElement): void {
       {
         onSetMode: (nextMode) => {
           mode = nextMode;
-          statusText = nextMode === "idle" ? "Idle mode." : nextMode === "add_station" ? "Click map to add stations." : "Click map to add points to active station.";
+          if (nextMode !== "add_point") {
+            clearSelectedPoint();
+          }
+          statusText =
+            nextMode === "idle"
+              ? "Idle mode."
+              : nextMode === "add_station"
+                ? "Click outside existing station radii to add stations."
+                : "Click inside the active station radius to add a point or move the selected point.";
           render();
         },
         onApiKeyChange: (value) => {
@@ -727,6 +825,7 @@ export function createApp(root: HTMLElement): void {
         },
         onSetActiveStation: (stationId) => {
           setStationSelection(stationId, "active");
+          statusText = "Active station set.";
           render();
         },
         onDeleteStation: (stationId) => {
@@ -738,20 +837,10 @@ export function createApp(root: HTMLElement): void {
           render();
         },
         onSelectPoint: (stationId, pointId) => {
-          const stateNow = store.getState();
-          const station = stateNow.stations.find((item) => item.id === stationId);
-          const point = station?.walkPoints.find((item) => item.id === pointId);
-
-          store.update((draft) => {
-            draft.ui.activeStationId = stationId;
-            draft.ui.selectedPointId = pointId;
-            return draft;
+          togglePointSelection(stationId, pointId, {
+            focusPoint: true,
+            scrollIntoView: false
           });
-          if (point) {
-            map.focusOnPoint({ lat: point.lat, lon: point.lon });
-          }
-          scrollSelectedIntoView = false;
-          render();
         },
         onDeletePoint: (stationId, pointId) => {
           deletePoint(stationId, pointId);
@@ -761,14 +850,13 @@ export function createApp(root: HTMLElement): void {
           movePoint(stationId, pointId, direction);
           render();
         },
-        onGenerateRandomPoints: (stationId, count, radiusM) => {
-          addRandomPoints(stationId, count, radiusM);
+        onGenerateRandomPoints: (stationId, count) => {
+          addRandomPoints(stationId, count);
           render();
         },
-        onRandomDefaultsChange: (count, radiusM) => {
+        onRandomDefaultsChange: (count) => {
           store.update((draft) => {
             draft.randomPointDefaults.count = count;
-            draft.randomPointDefaults.radiusM = radiusM;
             return draft;
           });
         },

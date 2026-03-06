@@ -31,7 +31,6 @@ export interface AppState {
   };
   randomPointDefaults: {
     count: number;
-    radiusM: number;
   };
   ui: {
     activeStationId: string | null;

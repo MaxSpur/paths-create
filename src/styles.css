@@ -74,6 +74,13 @@ body,
   padding: 6px 8px;
 }
 
+.panel input[type="range"] {
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
 .panel button {
   border: 1px solid #b8c4d1;
   background: #eef4f8;
@@ -139,6 +146,16 @@ body,
   align-self: center;
 }
 
+.station-radius-field {
+  margin-bottom: 0;
+}
+
+.station-radius-field span {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .station-btn-row {
   display: flex;
   gap: 6px;
@@ -180,6 +197,12 @@ body,
 .points-help {
   margin: 4px 0 8px;
   font-size: 0.74rem;
+  color: #475569;
+}
+
+.station-radius-note {
+  align-self: flex-end;
+  font-size: 0.75rem;
   color: #475569;
 }
 

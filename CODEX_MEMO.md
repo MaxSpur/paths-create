@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Add elevation draping to generated paths and emit GPX `<ele>` tags.
+Unify station/point map interactions and station-radius editing UX.
 
 ## CURRENT_SUBTASK
-Completed ORS-backed elevation draping for walking + rail segments and GPX `<ele>` export; verified with `npm run test:run` and `npm run build`.
+Completed station-radius-driven interaction cleanup; verified with `npm run test:run` and `npm run build`.
 
 ## ARCHITECTURE_FACTS
 - App is fully browser-only (no backend).
@@ -14,6 +14,7 @@ Completed ORS-backed elevation draping for walking + rail segments and GPX `<ele
   - `src/ui/map.ts` handles Leaflet map interactions/layers.
   - `src/ui/panel.ts` handles station/point/generation controls.
   - `src/ui/app.ts` orchestrates state, async actions, and rendering.
+  - `src/ui/interaction.ts` holds pure helpers for station-radius hit testing and map-click intent resolution.
 - Generation pipeline (`src/lib/generator.ts`):
   1. Fetch rail network from Overpass in corridor bbox.
   2. Build rail graph and compute shortest station-to-station path.
@@ -40,6 +41,15 @@ Completed ORS-backed elevation draping for walking + rail segments and GPX `<ele
   - clicking existing walk point selects/deselects it (mode-independent),
   - selected walk point can be moved by clicking another map location,
   - selected walk point can be deleted with Delete/Backspace (when focus is not in an input).
+- Current interaction gap to address:
+  - resolved: map clicks now reason about station radii before add/move/deselect actions.
+- Current map interaction rules in code:
+  - clicking inside another station's radius activates that station and clears the selected point,
+  - in `add_point` mode, clicks inside the active station radius add a point or move the selected point,
+  - clicks outside the active station radius deselect the selected point before any add-station action,
+  - active station radius is always drawn and setting active station focuses the map to show the full radius,
+  - station radius is now the single source of truth for add-point hit testing and random point generation,
+  - sidebar point-row clicks now toggle selection the same way map point clicks do.
 - UI persistence includes `ui.selectedPointId` in localStorage state.
 - Address labels:
   - walk-point labels are read-only in UI,
