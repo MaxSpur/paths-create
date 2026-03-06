@@ -1,10 +1,10 @@
 # CODEX_MEMO
 
 ## CURRENT_TASK
-Refine point-row dial UX and in-flight address resolution feedback.
+Add elevation draping to generated paths and emit GPX `<ele>` tags.
 
 ## CURRENT_SUBTASK
-Completed `lookup` clock phase + dial styling harmonization; verified with `npm run test:run` and `npm run build`.
+Completed ORS-backed elevation draping for walking + rail segments and GPX `<ele>` export; verified with `npm run test:run` and `npm run build`.
 
 ## ARCHITECTURE_FACTS
 - App is fully browser-only (no backend).
@@ -17,9 +17,15 @@ Completed `lookup` clock phase + dial styling harmonization; verified with `npm 
 - Generation pipeline (`src/lib/generator.ts`):
   1. Fetch rail network from Overpass in corridor bbox.
   2. Build rail graph and compute shortest station-to-station path.
-  3. Build anti-repeat pair list from origin/destination station point pools.
-  4. Fetch walking legs from ORS (retry/backoff).
-  5. Compose 3-segment trips and serialize GPX.
+  3. Drape the shared rail path through ORS elevation in one batched call (chunked at 2000 vertices with overlap stitching).
+  4. Build anti-repeat pair list from origin/destination station point pools.
+  5. Fetch walking legs from ORS (retry/backoff, `elevation: true`).
+  6. Compose 3-segment trips and serialize GPX with `<ele>` when available.
+- Elevation strategy:
+  - walking directions can request 3D coordinates from ORS directly,
+  - rail middle segment has no elevation in OSM and should be draped separately,
+  - ORS/openelevationservice can drape the rail LineString in one batched call instead of per-point requests,
+  - local-only draping is not present in this repo; self-hosting ORS/openelevationservice would be the local path if needed later.
 - Export path: GPX files are downloaded as ZIP via `src/lib/exportZip.ts`.
 - TS build safety:
   - `tsconfig.app.json` and `tsconfig.node.json` set `noEmit: true` to prevent accidental JS output into `src/`.

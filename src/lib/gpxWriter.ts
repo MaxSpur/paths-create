@@ -9,10 +9,17 @@ function escapeXml(value: string): string {
     .replaceAll("'", "&apos;");
 }
 
+function trackPointToXml([lon, lat, elevation]: LonLat): string {
+  const pointTag = `lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}"`;
+  if (typeof elevation === "number" && Number.isFinite(elevation)) {
+    return `<trkpt ${pointTag}>\n        <ele>${elevation}</ele>\n      </trkpt>`;
+  }
+
+  return `<trkpt ${pointTag} />`;
+}
+
 function segmentToXml(coords: LonLat[]): string {
-  const points = coords
-    .map(([lon, lat]) => `<trkpt lat="${lat.toFixed(7)}" lon="${lon.toFixed(7)}" />`)
-    .join("\n      ");
+  const points = coords.map((coord) => trackPointToXml(coord)).join("\n      ");
   return `<trkseg>\n      ${points}\n    </trkseg>`;
 }
 

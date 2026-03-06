@@ -1,11 +1,7 @@
 import type { LatLon, LonLat } from "./types";
 
-interface OrsGeoJsonResponse {
-  features?: Array<{
-    geometry?: {
-      coordinates?: LonLat[];
-    };
-  }>;
+interface GeoJsonGeometry {
+  coordinates?: unknown;
 }
 
 export interface WalkingRouteRequest {
@@ -23,9 +19,12 @@ export interface WalkingRouteResult {
 export interface OrsClientOptions {
   apiKey: string;
   baseUrl?: string;
+  elevationBaseUrl?: string;
   maxRetries?: number;
   retryBaseDelayMs?: number;
 }
+
+const MAX_ELEVATION_VERTICES = 2000;
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -56,10 +55,87 @@ async function mapConcurrent<T, R>(
   return results;
 }
 
+function normalizeCoordinate(value: unknown): LonLat | null {
+  if (!Array.isArray(value) || value.length < 2) {
+    return null;
+  }
+
+  const [lon, lat, elevation] = value;
+  if (typeof lon !== "number" || typeof lat !== "number") {
+    return null;
+  }
+
+  if (typeof elevation === "number") {
+    return [lon, lat, elevation];
+  }
+
+  return [lon, lat];
+}
+
+function normalizeCoordinateList(value: unknown): LonLat[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const coordinates: LonLat[] = [];
+  for (const item of value) {
+    const coordinate = normalizeCoordinate(item);
+    if (!coordinate) {
+      return null;
+    }
+    coordinates.push(coordinate);
+  }
+
+  return coordinates.length > 0 ? coordinates : null;
+}
+
+function extractCoordinates(payload: unknown): LonLat[] | null {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const features = Array.isArray(record.features) ? record.features : [];
+  const feature = features[0];
+  const featureGeometry =
+    feature && typeof feature === "object" ? ((feature as { geometry?: GeoJsonGeometry }).geometry ?? null) : null;
+  const rootGeometry = (record.geometry as GeoJsonGeometry | undefined) ?? null;
+
+  return (
+    normalizeCoordinateList(featureGeometry?.coordinates) ??
+    normalizeCoordinateList(rootGeometry?.coordinates) ??
+    normalizeCoordinateList(record.coordinates)
+  );
+}
+
+function splitLineIntoChunks(line: LonLat[], maxVertices = MAX_ELEVATION_VERTICES): LonLat[][] {
+  if (line.length <= maxVertices) {
+    return [line];
+  }
+
+  const chunks: LonLat[][] = [];
+  const step = Math.max(1, maxVertices - 1);
+
+  for (let start = 0; start < line.length; start += step) {
+    const chunk = line.slice(start, start + maxVertices);
+    if (chunk.length < 2 && chunks.length > 0) {
+      break;
+    }
+    chunks.push(chunk);
+    if (start + maxVertices >= line.length) {
+      break;
+    }
+  }
+
+  return chunks;
+}
+
 export class OrsClient {
   private readonly apiKey: string;
 
   private readonly baseUrl: string;
+
+  private readonly elevationBaseUrl: string;
 
   private readonly maxRetries: number;
 
@@ -68,22 +144,15 @@ export class OrsClient {
   constructor(options: OrsClientOptions) {
     this.apiKey = options.apiKey;
     this.baseUrl = options.baseUrl ?? "https://api.openrouteservice.org/v2/directions";
+    this.elevationBaseUrl = options.elevationBaseUrl ?? "https://api.openrouteservice.org/elevation";
     this.maxRetries = options.maxRetries ?? 3;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 350;
   }
 
-  async getWalkingRoute(from: LatLon, to: LatLon): Promise<LonLat[]> {
+  private async postJson(url: string, payload: unknown): Promise<unknown> {
     if (!this.apiKey.trim()) {
       throw new Error("Missing ORS API key.");
     }
-
-    const url = `${this.baseUrl}/foot-walking/geojson`;
-    const payload = {
-      coordinates: [
-        [from.lon, from.lat],
-        [to.lon, to.lat]
-      ]
-    };
 
     let attempt = 0;
 
@@ -109,14 +178,7 @@ export class OrsClient {
           throw new Error(`ORS ${response.status}: ${text || response.statusText}`);
         }
 
-        const data = (await response.json()) as OrsGeoJsonResponse;
-        const coordinates = data.features?.[0]?.geometry?.coordinates;
-
-        if (!coordinates || coordinates.length < 2) {
-          throw new Error("ORS response did not include route geometry.");
-        }
-
-        return coordinates;
+        return await response.json();
       } catch (error) {
         if (attempt >= this.maxRetries) {
           throw error instanceof Error ? error : new Error(String(error));
@@ -126,6 +188,68 @@ export class OrsClient {
         await sleep(delay);
       }
     }
+  }
+
+  private async postForCoordinates(url: string, payload: unknown, emptyResponseMessage: string): Promise<LonLat[]> {
+    const data = await this.postJson(url, payload);
+    const coordinates = extractCoordinates(data);
+
+    if (!coordinates || coordinates.length < 2) {
+      throw new Error(emptyResponseMessage);
+    }
+
+    return coordinates;
+  }
+
+  async getWalkingRoute(from: LatLon, to: LatLon): Promise<LonLat[]> {
+    const url = `${this.baseUrl}/foot-walking/geojson`;
+    return this.postForCoordinates(
+      url,
+      {
+        coordinates: [
+          [from.lon, from.lat],
+          [to.lon, to.lat]
+        ],
+        elevation: true
+      },
+      "ORS response did not include route geometry."
+    );
+  }
+
+  async drapeLine(line: LonLat[]): Promise<LonLat[]> {
+    if (line.length < 2) {
+      return line;
+    }
+
+    const chunks = splitLineIntoChunks(line);
+    const draped: LonLat[] = [];
+
+    for (const chunk of chunks) {
+      const coordinates = await this.postForCoordinates(
+        `${this.elevationBaseUrl}/line`,
+        {
+          format_in: "geojson",
+          format_out: "geojson",
+          geometry: {
+            type: "LineString",
+            coordinates: chunk.map(([lon, lat]) => [lon, lat] as [number, number])
+          }
+        },
+        "ORS elevation response did not include draped line geometry."
+      );
+
+      if (coordinates.length !== chunk.length) {
+        throw new Error(`ORS elevation returned ${coordinates.length} points for ${chunk.length} input points.`);
+      }
+
+      if (draped.length > 0) {
+        draped.push(...coordinates.slice(1));
+      } else {
+        draped.push(...coordinates);
+      }
+    }
+
+    return draped;
   }
 
   async getManyWalkingRoutes(

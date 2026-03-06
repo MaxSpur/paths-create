@@ -12,6 +12,10 @@ Browser-only tool for generating synthetic transit-like GPX tracks for visualiza
   1. walk-in route to origin station,
   2. rail path between stations from OSM Overpass data,
   3. walk-out route from destination station.
+- Elevation-aware GPX export:
+  - walking legs request 3D coordinates from ORS directions,
+  - rail segment is draped once per generation run via ORS elevation,
+  - GPX track points include `<ele>` when elevation is available.
 - Anti-repeat pair generation (`round_robin_shuffle`).
 - Persistent local state via `localStorage` key `odc.generator.state.v1`.
 - GPX-only output bundled into ZIP download.
@@ -20,7 +24,7 @@ Browser-only tool for generating synthetic transit-like GPX tracks for visualiza
 
 - Vite + TypeScript
 - Leaflet
-- OpenRouteService API (walking segments)
+- OpenRouteService API (walking segments + elevation draping)
 - Overpass API (stations + rail geometries)
 - Vitest
 
@@ -59,3 +63,4 @@ npm run build
 - This app has no backend; API calls are made directly from the browser.
 - The ORS API key is intentionally persisted in localStorage per project requirements.
 - Generated transit middle-leg is geometry-based, not schedule/timetable based.
+- Elevation is currently sourced remotely from ORS; there is no bundled local terrain dataset or draping engine in the repo.

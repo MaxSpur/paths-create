@@ -45,6 +45,10 @@ function sanitizeFileName(name: string): string {
   return name.replaceAll(/[^a-z0-9_-]+/gi, "_");
 }
 
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 async function buildWalkLegs(
   orsClient: OrsClient,
   pointList: WalkPoint[],
@@ -80,7 +84,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     phase: "setup",
     message: "Checking inputs",
     current: 0,
-    total: 5
+    total: 6
   });
 
   if (!input.orsApiKey.trim()) {
@@ -119,7 +123,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     phase: "setup",
     message: "Fetching rail network",
     current: 1,
-    total: 5
+    total: 6
   });
   const bbox = computeBbox([stationPoint(input.originStation), stationPoint(input.destinationStation)], railPaddingM);
 
@@ -128,7 +132,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     phase: "setup",
     message: "Building rail graph",
     current: 2,
-    total: 5
+    total: 6
   });
   const graph = buildRailGraph(railData);
 
@@ -158,7 +162,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     phase: "setup",
     message: "Computing metro path",
     current: 3,
-    total: 5
+    total: 6
   });
   const railNodePath = shortestPath(graph, originNode, destinationNode);
   if (!railNodePath || railNodePath.length < 2) {
@@ -179,12 +183,29 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     };
   }
 
-  const metroCoords = nodePathToCoordinates(graph, railNodePath);
+  const orsClient = new OrsClient({ apiKey: input.orsApiKey });
+  let metroCoords = nodePathToCoordinates(graph, railNodePath);
+  emitProgress({
+    phase: "setup",
+    message: "Draping metro path elevation",
+    current: 4,
+    total: 6
+  });
+  try {
+    metroCoords = await orsClient.drapeLine(metroCoords);
+  } catch (error) {
+    addFailure(
+      failures,
+      "METRO_ELEVATION_FAILED",
+      `Could not drape metro path elevation: ${getErrorMessage(error)}`
+    );
+  }
+
   emitProgress({
     phase: "setup",
     message: "Generating point pairings",
-    current: 4,
-    total: 5
+    current: 5,
+    total: 6
   });
   const pairings = generateRoundRobinPairs(
     input.originStation.walkPoints,
@@ -193,7 +214,6 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     input.seed
   );
 
-  const orsClient = new OrsClient({ apiKey: input.orsApiKey });
   const uniqueOrigins = Array.from(
     new Map(pairings.pairs.map((pair) => [pair.origin.id, pair.origin])).values()
   );
@@ -216,8 +236,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   emitProgress({
     phase: "setup",
     message: "Preparing walking routes",
-    current: 5,
-    total: 5
+    current: 6,
+    total: 6
   });
 
   const [walkInMap, walkOutMap] = await Promise.all([

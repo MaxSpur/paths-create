@@ -1,5 +1,5 @@
 import L from "leaflet";
-import type { GeneratedTrip, LatLon, StationRecord } from "../lib/types";
+import type { GeneratedTrip, LatLon, LonLat, StationRecord } from "../lib/types";
 
 export interface MapCallbacks {
   onMapClick: (point: LatLon) => void;
@@ -127,7 +127,7 @@ export class MapView {
     }
 
     for (const trip of model.previewTrips) {
-      const toLatLng = (coords: Array<[number, number]>) => coords.map((c) => L.latLng(c[1], c[0]));
+      const toLatLng = (coords: LonLat[]) => coords.map((c) => L.latLng(c[1], c[0]));
       L.polyline(toLatLng(trip.walkInCoords), { color: "#2f855a", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
       L.polyline(toLatLng(trip.metroCoords), { color: "#1d4ed8", weight: 3.6, opacity: 0.84 }).addTo(this.previewLayer);
       L.polyline(toLatLng(trip.walkOutCoords), { color: "#b45309", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);

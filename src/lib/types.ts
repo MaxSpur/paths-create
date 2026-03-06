@@ -49,7 +49,7 @@ export interface LatLon {
   lon: number;
 }
 
-export type LonLat = [number, number];
+export type LonLat = [number, number, number?];
 
 export interface PairingResult {
   pairs: Array<{

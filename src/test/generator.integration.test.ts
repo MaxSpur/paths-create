@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateTrips } from "../lib/generator";
 import type { StationRecord } from "../lib/types";
 
-function createOrsResponse(payload: { coordinates: [number, number][] }): Response {
+function createOrsResponse(payload: { coordinates: [number, number, number?][] }): Response {
   return new Response(
     JSON.stringify({
       features: [
@@ -12,6 +12,16 @@ function createOrsResponse(payload: { coordinates: [number, number][] }): Respon
           }
         }
       ]
+    }),
+    { status: 200 }
+  );
+}
+
+function createElevationResponse(payload: { coordinates: [number, number][] }): Response {
+  return new Response(
+    JSON.stringify({
+      type: "LineString",
+      coordinates: payload.coordinates.map(([lon, lat], index) => [lon, lat, 200 + index])
     }),
     { status: 200 }
   );
@@ -86,9 +96,16 @@ describe("generateTrips integration", () => {
       if (url.includes("overpass")) {
         return createConnectedRailResponse();
       }
+      if (url.includes("/elevation/line")) {
+        const body = JSON.parse(String(init?.body));
+        return createElevationResponse({ coordinates: body.geometry.coordinates });
+      }
       if (url.includes("openrouteservice")) {
         const body = JSON.parse(String(init?.body));
-        return createOrsResponse({ coordinates: body.coordinates });
+        expect(body.elevation).toBe(true);
+        return createOrsResponse({
+          coordinates: body.coordinates.map(([lon, lat]: [number, number], index: number) => [lon, lat, 100 + index])
+        });
       }
       throw new Error(`Unhandled URL: ${url}`);
     });
@@ -113,9 +130,13 @@ describe("generateTrips integration", () => {
 
     expect(runA.report.generatedTrips).toBe(4);
     expect(runB.report.generatedTrips).toBe(4);
+    expect(runA.report.failures).toEqual([]);
     expect(runA.trips.map((trip) => `${trip.originPoint.id}-${trip.destinationPoint.id}`)).toEqual(
       runB.trips.map((trip) => `${trip.originPoint.id}-${trip.destinationPoint.id}`)
     );
+    expect(runA.trips[0]?.gpx).toContain("<ele>");
+    expect(runA.trips[0]?.metroCoords[0]?.[2]).toBe(200);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/elevation/line"))).toBe(true);
     expect(fetchMock).toHaveBeenCalled();
   });
 
