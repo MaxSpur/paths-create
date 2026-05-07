@@ -19,7 +19,7 @@ function createCallbacks(): PanelCallbacks {
     onUpdateStation: noop,
     onSelectPoint: noop,
     onDeletePoint: noop,
-    onMovePoint: noop,
+    onTogglePointTripMode: noop,
     onGenerateRandomPoints: noop,
     onRandomDefaultsChange: noop,
     onTripCountChange: noop,
@@ -55,7 +55,8 @@ describe("renderPanel", () => {
               lat: 52.521,
               lon: 13.406,
               label: pointLabel,
-              addressStatus: "resolved"
+              addressStatus: "resolved",
+              tripMode: "driving"
             }
           ]
         }
@@ -102,6 +103,7 @@ describe("renderPanel", () => {
     expect(container.textContent).toContain(candidateName);
     expect(container.textContent).toContain(failureCode);
     expect(container.textContent).toContain(failureMessage);
+    expect(container.querySelector<HTMLButtonElement>("[data-point-trip-mode]")?.textContent).toBe("D");
   });
 
   it("preserves panel and station-list scroll positions across renders", () => {
@@ -155,7 +157,7 @@ describe("renderPanel", () => {
           lat: 52.52,
           lon: 13.405,
           radiusM: 500,
-          walkPoints: [{ id: "point-1", lat: 52.521, lon: 13.406, label: "Resolving address..." }]
+          walkPoints: [{ id: "point-1", lat: 52.521, lon: 13.406, label: "Resolving address...", tripMode: "metro" }]
         }
       ],
       activeStationId: "station-1",

@@ -64,4 +64,51 @@ describe("OrsClient", () => {
     expect(draped[1999]?.[2]).toBe(1999);
     expect(draped[2001]?.[2]).toBe(2001);
   });
+
+  it("requests driving alternatives and returns each route geometry", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.alternative_routes).toEqual({
+        target_count: 3,
+        share_factor: 0.6,
+        weight_factor: 2
+      });
+      expect(body.elevation).toBe(true);
+
+      return new Response(
+        JSON.stringify({
+          features: [
+            {
+              geometry: {
+                coordinates: [
+                  [13.4, 52.5, 41],
+                  [13.45, 52.55, 42]
+                ]
+              }
+            },
+            {
+              geometry: {
+                coordinates: [
+                  [13.4, 52.5, 43],
+                  [13.46, 52.56, 44]
+                ]
+              }
+            }
+          ]
+        }),
+        { status: 200 }
+      );
+    });
+
+    const client = new OrsClient({ apiKey: "test" });
+    const alternatives = await client.getDrivingRouteAlternatives(
+      { lat: 52.5, lon: 13.4 },
+      { lat: 52.55, lon: 13.45 }
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/driving-car/geojson");
+    expect(alternatives).toHaveLength(2);
+    expect(alternatives[1]?.[1]).toEqual([13.46, 52.56, 44]);
+  });
 });

@@ -30,13 +30,15 @@ function normalizeStation(raw: unknown): StationRecord | null {
           : typeof p.label === "string" && p.label.trim() && p.label !== "Resolving address..."
             ? "resolved"
             : "resolving";
+      const normalizedTripMode: WalkPoint["tripMode"] = p.tripMode === "driving" ? "driving" : "metro";
 
       return {
         id: p.id as string,
         lat: p.lat as number,
         lon: p.lon as number,
         label: typeof p.label === "string" ? p.label : undefined,
-        addressStatus: normalizedStatus
+        addressStatus: normalizedStatus,
+        tripMode: normalizedTripMode
       };
     });
 

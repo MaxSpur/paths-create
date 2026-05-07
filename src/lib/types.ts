@@ -1,4 +1,6 @@
 export type PairingMode = "round_robin_shuffle";
+export type PointTripMode = "metro" | "driving";
+export type TripRouteMode = "metro" | "driving";
 
 export interface WalkPoint {
   id: string;
@@ -6,6 +8,7 @@ export interface WalkPoint {
   lon: number;
   label?: string;
   addressStatus?: "resolving" | "resolved" | "failed";
+  tripMode?: PointTripMode;
 }
 
 export interface StationRecord {
@@ -64,11 +67,13 @@ export interface GeneratedTrip {
   id: string;
   fileName: string;
   gpx: string;
+  routeMode: TripRouteMode;
   originPoint: WalkPoint;
   destinationPoint: WalkPoint;
   walkInCoords: LonLat[];
   metroCoords: LonLat[];
   walkOutCoords: LonLat[];
+  drivingCoords: LonLat[];
 }
 
 export interface GenerationFailure {

@@ -196,7 +196,7 @@ body,
 
 .point-actions {
   white-space: nowrap;
-  min-width: 132px;
+  min-width: 92px;
 }
 
 .point-actions-inner {
@@ -279,6 +279,24 @@ body,
   animation:
     point-clock-lookup-spin 1150ms linear infinite,
     point-clock-lookup-breathe 1450ms ease-in-out infinite;
+}
+
+.point-trip-mode-button {
+  min-width: 30px;
+  padding-inline: 0;
+  font-weight: 700;
+}
+
+.point-trip-mode-button.metro {
+  border-color: #9eb9d7;
+  color: #17456b;
+  background: #eaf3ff;
+}
+
+.point-trip-mode-button.driving {
+  border-color: #c6acef;
+  color: #5526a4;
+  background: #f2ecff;
 }
 
 @keyframes point-clock-lookup-spin {

@@ -162,4 +162,65 @@ describe("generateTrips integration", () => {
     expect(result.report.failures[0]?.code).toBe("NO_RAIL_PATH");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("uses direct driving routes for pairs containing driving-mode points", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("overpass")) {
+        throw new Error("Driving-only generation should not fetch rail data.");
+      }
+      if (url.includes("/driving-car/geojson")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.alternative_routes).toBeTruthy();
+        return new Response(
+          JSON.stringify({
+            features: [
+              {
+                geometry: {
+                  coordinates: [
+                    body.coordinates[0],
+                    [13.41, 52.51, 111],
+                    body.coordinates[1]
+                  ]
+                }
+              },
+              {
+                geometry: {
+                  coordinates: [
+                    body.coordinates[0],
+                    [13.415, 52.515, 222],
+                    body.coordinates[1]
+                  ]
+                }
+              }
+            ]
+          }),
+          { status: 200 }
+        );
+      }
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+
+    const result = await generateTrips({
+      orsApiKey: "key",
+      overpassUrl: "https://overpass.test/interpreter",
+      originStation: {
+        ...originStation,
+        walkPoints: [{ ...originStation.walkPoints[0], tripMode: "driving" }]
+      },
+      destinationStation: {
+        ...destinationStation,
+        walkPoints: [{ ...destinationStation.walkPoints[0], tripMode: "metro" }]
+      },
+      tripCount: 2,
+      seed: 123
+    });
+
+    expect(result.report.generatedTrips).toBe(2);
+    expect(result.report.failures).toEqual([]);
+    expect(result.trips.every((trip) => trip.routeMode === "driving")).toBe(true);
+    expect(result.trips.every((trip) => trip.drivingCoords.length === 3)).toBe(true);
+    expect(result.trips.every((trip) => trip.metroCoords.length === 0)).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

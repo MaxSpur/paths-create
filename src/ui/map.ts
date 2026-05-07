@@ -288,9 +288,13 @@ export class MapView {
 
     for (const trip of model.previewTrips) {
       const toLatLng = (coords: LonLat[]) => coords.map((c) => L.latLng(c[1], c[0]));
-      L.polyline(toLatLng(trip.walkInCoords), { color: "#2f855a", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
-      L.polyline(toLatLng(trip.metroCoords), { color: "#1d4ed8", weight: 3.6, opacity: 0.84 }).addTo(this.previewLayer);
-      L.polyline(toLatLng(trip.walkOutCoords), { color: "#b45309", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
+      if (trip.routeMode === "driving") {
+        L.polyline(toLatLng(trip.drivingCoords), { color: "#7c3aed", weight: 3.7, opacity: 0.82 }).addTo(this.previewLayer);
+      } else {
+        L.polyline(toLatLng(trip.walkInCoords), { color: "#2f855a", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
+        L.polyline(toLatLng(trip.metroCoords), { color: "#1d4ed8", weight: 3.6, opacity: 0.84 }).addTo(this.previewLayer);
+        L.polyline(toLatLng(trip.walkOutCoords), { color: "#b45309", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
+      }
     }
   }
 }

@@ -16,6 +16,12 @@
 
 - For station radius sliders, update the local readout on `input` and commit app state on `change`; committing on every drag step rerenders the whole panel.
 - The address status clock should stay in fixed action space to avoid table layout shifts.
+- Keep point-row controls compact. The row now prioritizes the `M`/`D` route-mode toggle and delete action over manual ordering.
+
+## Generation Modes
+
+- Treat per-point `driving` mode as a pair-level override: any generated pair containing a driving point should become a direct point-to-point driving trip.
+- Request ORS driving alternatives once per unique driving pair, then randomly choose among returned alternatives per generated trip to increase variety without multiplying API calls.
 
 ## Async Address Lookup
 

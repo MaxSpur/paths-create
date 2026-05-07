@@ -16,6 +16,18 @@ export interface WalkingRouteResult {
   error?: string;
 }
 
+export interface DrivingRouteRequest {
+  id: string;
+  from: LatLon;
+  to: LatLon;
+}
+
+export interface DrivingRouteResult {
+  id: string;
+  alternatives?: LonLat[][];
+  error?: string;
+}
+
 export interface OrsClientOptions {
   apiKey: string;
   baseUrl?: string;
@@ -106,6 +118,29 @@ function extractCoordinates(payload: unknown): LonLat[] | null {
     normalizeCoordinateList(rootGeometry?.coordinates) ??
     normalizeCoordinateList(record.coordinates)
   );
+}
+
+function extractCoordinateAlternatives(payload: unknown): LonLat[][] {
+  if (!payload || typeof payload !== "object") {
+    return [];
+  }
+
+  const record = payload as Record<string, unknown>;
+  const features = Array.isArray(record.features) ? record.features : [];
+  const alternatives = features
+    .map((feature) => {
+      const featureGeometry =
+        feature && typeof feature === "object" ? ((feature as { geometry?: GeoJsonGeometry }).geometry ?? null) : null;
+      return normalizeCoordinateList(featureGeometry?.coordinates);
+    })
+    .filter((coordinates): coordinates is LonLat[] => Boolean(coordinates && coordinates.length > 1));
+
+  if (alternatives.length > 0) {
+    return alternatives;
+  }
+
+  const singleRoute = extractCoordinates(payload);
+  return singleRoute && singleRoute.length > 1 ? [singleRoute] : [];
 }
 
 function splitLineIntoChunks(line: LonLat[], maxVertices = MAX_ELEVATION_VERTICES): LonLat[][] {
@@ -201,6 +236,21 @@ export class OrsClient {
     return coordinates;
   }
 
+  private async postForCoordinateAlternatives(
+    url: string,
+    payload: unknown,
+    emptyResponseMessage: string
+  ): Promise<LonLat[][]> {
+    const data = await this.postJson(url, payload);
+    const alternatives = extractCoordinateAlternatives(data);
+
+    if (alternatives.length === 0) {
+      throw new Error(emptyResponseMessage);
+    }
+
+    return alternatives;
+  }
+
   async getWalkingRoute(from: LatLon, to: LatLon): Promise<LonLat[]> {
     const url = `${this.baseUrl}/foot-walking/geojson`;
     return this.postForCoordinates(
@@ -214,6 +264,45 @@ export class OrsClient {
       },
       "ORS response did not include route geometry."
     );
+  }
+
+  async getDrivingRoute(from: LatLon, to: LatLon): Promise<LonLat[]> {
+    const url = `${this.baseUrl}/driving-car/geojson`;
+    return this.postForCoordinates(
+      url,
+      {
+        coordinates: [
+          [from.lon, from.lat],
+          [to.lon, to.lat]
+        ],
+        elevation: true
+      },
+      "ORS response did not include driving route geometry."
+    );
+  }
+
+  async getDrivingRouteAlternatives(from: LatLon, to: LatLon): Promise<LonLat[][]> {
+    const url = `${this.baseUrl}/driving-car/geojson`;
+    try {
+      return await this.postForCoordinateAlternatives(
+        url,
+        {
+          coordinates: [
+            [from.lon, from.lat],
+            [to.lon, to.lat]
+          ],
+          elevation: true,
+          alternative_routes: {
+            target_count: 3,
+            share_factor: 0.6,
+            weight_factor: 2
+          }
+        },
+        "ORS response did not include driving route geometry."
+      );
+    } catch {
+      return [await this.getDrivingRoute(from, to)];
+    }
   }
 
   async drapeLine(line: LonLat[]): Promise<LonLat[]> {
@@ -268,6 +357,34 @@ export class OrsClient {
         return {
           id: request.id,
           coordinates
+        };
+      } catch (error) {
+        completed += 1;
+        onProgress?.(completed, total);
+        return {
+          id: request.id,
+          error: error instanceof Error ? error.message : String(error)
+        };
+      }
+    });
+  }
+
+  async getManyDrivingRouteAlternatives(
+    requests: DrivingRouteRequest[],
+    concurrency = 2,
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<DrivingRouteResult[]> {
+    const total = requests.length;
+    let completed = 0;
+
+    return mapConcurrent(requests, concurrency, async (request) => {
+      try {
+        const alternatives = await this.getDrivingRouteAlternatives(request.from, request.to);
+        completed += 1;
+        onProgress?.(completed, total);
+        return {
+          id: request.id,
+          alternatives
         };
       } catch (error) {
         completed += 1;

@@ -55,7 +55,7 @@ export interface PanelCallbacks {
   onUpdateStation: (stationId: string, patch: Partial<Pick<StationRecord, "name" | "radiusM">>) => void;
   onSelectPoint: (stationId: string, pointId: string) => void;
   onDeletePoint: (stationId: string, pointId: string) => void;
-  onMovePoint: (stationId: string, pointId: string, direction: "up" | "down") => void;
+  onTogglePointTripMode: (stationId: string, pointId: string) => void;
   onGenerateRandomPoints: (stationId: string, count: number) => void;
   onRandomDefaultsChange: (count: number) => void;
   onTripCountChange: (tripCount: number) => void;
@@ -77,6 +77,9 @@ function pointRow(
 ): string {
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
+  const tripMode = point.tripMode === "driving" ? "driving" : "metro";
+  const modeLabel = tripMode === "driving" ? "D" : "M";
+  const modeTitle = tripMode === "driving" ? "Driving direct. Click to use metro." : "Metro route. Click to use driving.";
   return `<tr data-point-id="${escapeHtml(point.id)}" class="${isSelected ? "is-selected" : ""}">
     <td>
       <span class="point-label">${escapeHtml(label)}</span>
@@ -88,8 +91,7 @@ function pointRow(
             ? pointClockHtml(pointClock)
             : ""
         }
-        <button data-point-up type="button">↑</button>
-        <button data-point-down type="button">↓</button>
+        <button data-point-trip-mode type="button" class="point-trip-mode-button ${tripMode}" title="${escapeHtml(modeTitle)}">${modeLabel}</button>
         <button data-point-delete type="button">Delete</button>
       </div>
     </td>
@@ -413,13 +415,9 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         event.stopPropagation();
         callbacks.onDeletePoint(activeStation.id, pointId);
       });
-      row.querySelector<HTMLButtonElement>("[data-point-up]")?.addEventListener("click", (event) => {
+      row.querySelector<HTMLButtonElement>("[data-point-trip-mode]")?.addEventListener("click", (event) => {
         event.stopPropagation();
-        callbacks.onMovePoint(activeStation.id, pointId, "up");
-      });
-      row.querySelector<HTMLButtonElement>("[data-point-down]")?.addEventListener("click", (event) => {
-        event.stopPropagation();
-        callbacks.onMovePoint(activeStation.id, pointId, "down");
+        callbacks.onTogglePointTripMode(activeStation.id, pointId);
       });
     }
   }

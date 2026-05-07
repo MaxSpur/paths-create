@@ -6,6 +6,7 @@
 - openrouteservice dashboard: https://openrouteservice.org/dev/
 - openrouteservice API landing page: https://api.openrouteservice.org/
 - openrouteservice FAQ: https://openrouteservice.org/faq/
+- openrouteservice directions backend docs: https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/
 - Overpass API overview: https://wiki.openstreetmap.org/wiki/Overpass_API
 - OpenStreetMap copyright and attribution: https://www.openstreetmap.org/copyright
 - Nominatim search API: https://nominatim.org/release-docs/latest/api/Search/

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Origin-Destination Creator runs entirely in the browser. It lets a user curate stations and walking-access points on a Leaflet map, then generates GPX trips made from a walking approach, an OSM-derived rail segment, and a walking exit.
+Origin-Destination Creator runs entirely in the browser. It lets a user curate stations and access points on a Leaflet map, then generates GPX trips made from either a walking approach plus OSM-derived rail segment plus walking exit, or a direct ORS driving route between paired points.
 
 Runtime entry: `src/main.ts` mounts `createApp` from `src/ui/app.ts`.
 
@@ -29,7 +29,7 @@ State is persisted in localStorage under `odc.generator.state.v1`.
 The persisted model includes:
 
 - ORS API key and Overpass URL.
-- Station library with station coordinates, radius, and walk point pools.
+- Station library with station coordinates, radius, point pools, and per-point route mode (`metro` or `driving`).
 - Selected origin and destination stations.
 - Generation controls such as trip count, seed, and pairing mode.
 - UI state including active station, selected point, map center, and map zoom.
@@ -41,14 +41,14 @@ All loaded state is normalized through `stateStore.ts`. Invalid station selectio
 `generateTrips` performs the core workflow:
 
 1. Validate ORS key and point pools.
-2. Fetch rail ways from Overpass for a corridor bbox around the selected stations.
-3. Build a rail graph, snap each station to nearby rail nodes, and compute the shortest rail path.
-4. Drape the rail path with ORS elevation in batched line requests.
-5. Build anti-repeat origin/destination point pairings.
-6. Fetch walking legs from ORS with retry/backoff.
+2. Build anti-repeat origin/destination point pairings.
+3. Split pairs into metro trips and driving trips. Any pair containing a `driving` point becomes a direct driving trip.
+4. For metro trips, fetch rail ways from Overpass, build the rail graph, snap stations to rail nodes, compute the shortest rail path, and drape the rail path with ORS elevation.
+5. For metro trips, fetch walking legs from ORS with retry/backoff.
+6. For driving trips, fetch ORS driving alternatives once per unique point pair and randomly choose an available alternative per generated trip.
 7. Assemble trip geometries and serialize one GPX file per generated trip.
 
-Walking directions request elevation directly from ORS. Rail elevation is added through ORS line draping because OSM rail geometry has no elevation.
+Walking and driving directions request elevation directly from ORS. Rail elevation is added through ORS line draping because OSM rail geometry has no elevation.
 
 ## Interaction Model
 
@@ -56,6 +56,7 @@ Walking directions request elevation directly from ORS. Rail elevation is added 
 - The active station determines which walk points are shown and edited.
 - Existing station clicks activate that station in any mode.
 - Existing walk point clicks select or deselect that point.
+- Active station point rows have an `M`/`D` toggle. `M` keeps the point on the metro pipeline; `D` makes generated pairs containing that point use direct driving.
 - `add_point` mode adds or moves points only inside the active station radius.
 - Clicking outside the active station radius deselects the selected point before any other add action.
 - `add_station` mode adds stations only outside all existing station radii.

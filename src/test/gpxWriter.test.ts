@@ -45,4 +45,27 @@ describe("buildTripGpx", () => {
 
     expect(gpx).not.toContain("<ele>");
   });
+
+  it("creates one track segment for direct driving trips", () => {
+    const gpx = buildTripGpx({
+      id: "t3",
+      name: "Driving Trip",
+      originStationName: "Origin",
+      destinationStationName: "Destination",
+      walkIn: [],
+      metro: [],
+      walkOut: [],
+      driving: [
+        [13.4, 52.5, 41.1],
+        [13.45, 52.55, 44.2]
+      ]
+    });
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(gpx, "application/xml");
+
+    expect(doc.getElementsByTagName("parsererror").length).toBe(0);
+    expect(doc.getElementsByTagName("trkseg").length).toBe(1);
+    expect(doc.getElementsByTagName("trkpt").length).toBe(2);
+  });
 });

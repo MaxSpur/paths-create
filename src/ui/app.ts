@@ -406,7 +406,8 @@ export function createApp(root: HTMLElement): void {
       lat: point.lat,
       lon: point.lon,
       label: "Resolving address...",
-      addressStatus: "resolving"
+      addressStatus: "resolving",
+      tripMode: "metro"
     };
 
     store.update((draft) => {
@@ -544,18 +545,19 @@ export function createApp(root: HTMLElement): void {
     });
   };
 
-  const movePoint = (stationId: string, pointId: string, direction: "up" | "down") => {
+  const togglePointTripMode = (stationId: string, pointId: string) => {
+    let nextStatusText = "Point mode unchanged.";
     store.update((draft) => {
       const station = draft.stations.find((item) => item.id === stationId);
       if (!station) return draft;
-      const index = station.walkPoints.findIndex((point) => point.id === pointId);
-      if (index < 0) return draft;
-      const target = direction === "up" ? index - 1 : index + 1;
-      if (target < 0 || target >= station.walkPoints.length) return draft;
-      const [item] = station.walkPoints.splice(index, 1);
-      station.walkPoints.splice(target, 0, item);
+      const point = station.walkPoints.find((item) => item.id === pointId);
+      if (!point) return draft;
+      const nextMode = point.tripMode === "driving" ? "metro" : "driving";
+      point.tripMode = nextMode;
+      nextStatusText = nextMode === "driving" ? "Point set to driving mode." : "Point set to metro mode.";
       return draft;
     });
+    statusText = nextStatusText;
   };
 
   const deletePoint = (stationId: string, pointId: string) => {
@@ -871,8 +873,8 @@ export function createApp(root: HTMLElement): void {
           deletePoint(stationId, pointId);
           render();
         },
-        onMovePoint: (stationId, pointId, direction) => {
-          movePoint(stationId, pointId, direction);
+        onTogglePointTripMode: (stationId, pointId) => {
+          togglePointTripMode(stationId, pointId);
           render();
         },
         onGenerateRandomPoints: (stationId, count) => {

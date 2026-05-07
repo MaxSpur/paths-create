@@ -11,6 +11,8 @@ It lets you define origin and destination stations, build walking-access point p
 2. a rail segment between the two stations based on OpenStreetMap data,
 3. a walking exit from the destination station.
 
+Individual points can also be switched to direct driving mode. Any generated pair containing a driving-mode point uses an ORS driving route directly between the paired points instead of the walking + rail + walking pipeline.
+
 The generated trips are exported as GPX files inside a ZIP archive, with elevation included when available from openrouteservice.
 
 ## What You Can Do With It
@@ -19,6 +21,7 @@ The generated trips are exported as GPX files inside a ZIP archive, with elevati
 - Search for a location and choose from ranked candidate results before creating or finding stations.
 - Assign each station a walking-access radius from 5 m to 5 km.
 - Add walking points manually by clicking on the map, or generate random points inside a station radius.
+- Toggle individual points between metro mode and direct driving mode.
 - Set origin and destination stations for a generation run.
 - Generate multiple trips while rotating through available point pairs to reduce repetition.
 - Export the result as GPX files for use in route visualization, testing, demos, or import into other tools.
@@ -50,12 +53,13 @@ Use the app in this order:
    - click a point on the map or in the list to select it,
    - with `Map click: add point` mode active, click somewhere else inside the active station radius to move the selected point,
    - click outside the active station radius to deselect the point,
-   - use the `↑` / `↓` buttons to reorder points,
+   - use the `M` / `D` button to choose whether that point uses the metro pipeline or direct driving when paired,
    - use `Delete` in the list, or `Delete` / `Backspace` on the keyboard, to remove the selected point.
    Point labels are reverse-geocoded automatically, so new or moved points may briefly show as resolving before their address appears.
 7. Choose the trip endpoints.
    Use either the `Origin station` / `Destination station` dropdowns or the `Set origin` / `Set destination` buttons in each station card.
    For useful output, both the origin and destination stations should have at least one point; more points give the generator more combinations and reduce repetition.
+   If either point in a generated origin/destination pair is set to `D`, that trip is generated as a direct driving route. Otherwise, it uses the metro pipeline.
 8. Generate trips in **Generate Trips**.
    - set `Trip count`,
    - optionally set `Seed` if you want reproducible results,
@@ -131,6 +135,7 @@ Each generated trip is exported as GPX and contains:
 - the walk-in route geometry,
 - the rail route geometry between the chosen stations,
 - the walk-out route geometry,
+- or, for driving-mode pairs, one direct driving route geometry,
 - elevation in GPX track points when ORS provides it.
 
 The download is a ZIP archive containing one GPX file per generated trip.
@@ -140,6 +145,7 @@ The download is a ZIP archive containing one GPX file per generated trip.
 - Station and point data are managed entirely in the browser.
 - Nearby station candidates and rail geometries come from Overpass / OpenStreetMap.
 - Walking legs and elevation come from openrouteservice.
+- Direct driving routes and driving alternatives come from openrouteservice.
 - The rail leg is computed from OSM rail graph data and then elevation-draped through ORS.
 - State is persisted locally in the browser via `localStorage`.
 

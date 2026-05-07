@@ -31,11 +31,13 @@ export interface GpxTripInput {
   walkIn: LonLat[];
   metro: LonLat[];
   walkOut: LonLat[];
+  driving?: LonLat[];
 }
 
 export function buildTripGpx(input: GpxTripInput): string {
   const created = new Date().toISOString();
-  const segments = [input.walkIn, input.metro, input.walkOut]
+  const tripSegments = input.driving && input.driving.length > 0 ? [input.driving] : [input.walkIn, input.metro, input.walkOut];
+  const segments = tripSegments
     .filter((segment) => segment.length > 0)
     .map((segment) => segmentToXml(segment))
     .join("\n    ");

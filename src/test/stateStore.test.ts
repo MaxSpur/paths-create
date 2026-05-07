@@ -25,6 +25,7 @@ describe("stateStore", () => {
     expect(loaded.orsApiKey).toBe("test-key");
     expect(loaded.stations).toHaveLength(1);
     expect(loaded.stations[0].walkPoints).toHaveLength(1);
+    expect(loaded.stations[0].walkPoints[0]?.tripMode).toBe("metro");
     expect(loaded.selectedOriginStationId).toBe("st1");
   });
 

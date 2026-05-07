@@ -17,4 +17,5 @@
 - [x] Added a top-right map location search control.
 - [x] Added ranked location search candidates biased by the current visible map bounds.
 - [x] Fixed point address clock updates so they no longer reset station-list scroll or active radius slider interactions.
+- [x] Added per-point `M`/`D` route-mode toggles and direct driving trip generation.
 - [x] Refined `README.md` usage instructions around the actual panel/map workflow.
