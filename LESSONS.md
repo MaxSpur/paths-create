@@ -22,6 +22,7 @@
 - Debounce address refreshes after moving a point; each move should reset the pending lookup.
 - Keep reverse-geocode requests serialized and rate-limited so bulk random point creation does not overwhelm the public service.
 - Forward location search shares the geocode queue with reverse lookup, so UI code should show searching/queued feedback rather than assuming an instant response.
+- Do not implement client-side autocomplete against public Nominatim. Use explicit user-triggered search with a candidate list, or switch to a provider/self-hosted service that allows autocomplete.
 
 ## Build Hygiene
 

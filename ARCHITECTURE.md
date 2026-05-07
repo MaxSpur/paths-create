@@ -52,7 +52,7 @@ Walking directions request elevation directly from ORS. Rail elevation is added 
 
 ## Interaction Model
 
-- The map has a top-right location search control for quickly moving the map to a Nominatim result.
+- The map has a top-right location search control that returns a ranked candidate list. Search requests use the current visible map bounds as a Nominatim `viewbox` bias, then the client sorts results into visible, nearby expanded bounds, and elsewhere buckets.
 - The active station determines which walk points are shown and edited.
 - Existing station clicks activate that station in any mode.
 - Existing walk point clicks select or deselect that point.
@@ -67,6 +67,8 @@ The pure rules live in `src/ui/interaction.ts`; keep behavior changes there firs
 New and moved walk points start with `addressStatus: "resolving"`. `app.ts` schedules reverse-geocode refreshes through `src/lib/geocode.ts`, with debouncing for moved points and serialized/rate-limited request execution. The panel renders compact clock states for debounce, queue, and active lookup phases.
 
 Point-clock tick updates patch existing clock DOM through `updatePointClocks`; do not route timer ticks through a full `renderPanel` call because that can disrupt station-list scroll and active form controls.
+
+Public Nominatim does not support client-side autocomplete. Keep search user-triggered unless the project switches to a provider or self-hosted service that explicitly supports autocomplete.
 
 ## Build And Deploy
 

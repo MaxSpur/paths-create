@@ -1,13 +1,14 @@
 import L from "leaflet";
-import type { LocationSearchResult } from "../lib/geocode";
+import type { LocationSearchBounds, LocationSearchResult } from "../lib/geocode";
 import type { GeneratedTrip, LatLon, LonLat, StationRecord } from "../lib/types";
+import { rankLocationSearchResults, type RankedLocationSearchResult } from "./locationSearch";
 
 export interface MapCallbacks {
   onMapClick: (point: LatLon) => void;
   onStationClick: (stationId: string) => void;
   onPointClick: (stationId: string, pointId: string) => void;
   onViewChange: (point: LatLon, zoom: number) => void;
-  onLocationSearch: (query: string) => Promise<LocationSearchResult | null>;
+  onLocationSearch: (query: string, bounds: LocationSearchBounds) => Promise<LocationSearchResult[]>;
 }
 
 export interface MapRenderModel {
@@ -61,6 +62,16 @@ export class MapView {
   getCenter(): LatLon {
     const center = this.map.getCenter();
     return { lat: center.lat, lon: center.lng };
+  }
+
+  private getSearchBounds(): LocationSearchBounds {
+    const bounds = this.map.getBounds();
+    return {
+      south: bounds.getSouth(),
+      west: bounds.getWest(),
+      north: bounds.getNorth(),
+      east: bounds.getEast()
+    };
   }
 
   focusOnPoint(point: LatLon): void {
@@ -118,6 +129,10 @@ export class MapView {
     const input = form.querySelector<HTMLInputElement>("#mapLocationSearch");
     const button = form.querySelector<HTMLButtonElement>("button");
     const status = form.querySelector<HTMLElement>(".map-location-search-status");
+    const resultsList = document.createElement("div");
+    resultsList.className = "map-location-search-results";
+    resultsList.hidden = true;
+    form.append(resultsList);
 
     L.DomEvent.disableClickPropagation(form);
     L.DomEvent.disableScrollPropagation(form);
@@ -125,24 +140,32 @@ export class MapView {
     form.addEventListener("submit", (event) => {
       event.preventDefault();
       const query = input?.value.trim() ?? "";
-      if (!query || !button || !status || !input) {
+      if (!button || !status || !input) {
+        return;
+      }
+
+      if (query.length < 3) {
+        status.textContent = "Enter at least 3 characters.";
+        this.renderLocationSearchResults(resultsList, []);
         return;
       }
 
       button.disabled = true;
       input.disabled = true;
       status.textContent = "Searching...";
+      this.renderLocationSearchResults(resultsList, []);
+      const searchBounds = this.getSearchBounds();
 
-      void this.callbacks.onLocationSearch(query)
-        .then((result) => {
-          if (!result) {
+      void this.callbacks.onLocationSearch(query, searchBounds)
+        .then((results) => {
+          if (results.length === 0) {
             status.textContent = "No results.";
             return;
           }
 
-          this.focusOnLocation(result);
-          input.value = result.label;
-          status.textContent = result.label;
+          const rankedResults = rankLocationSearchResults(results, searchBounds).slice(0, 6);
+          this.renderLocationSearchResults(resultsList, rankedResults);
+          status.textContent = `${rankedResults.length} result${rankedResults.length === 1 ? "" : "s"}.`;
         })
         .catch((error: unknown) => {
           status.textContent = error instanceof Error ? error.message : String(error);
@@ -155,6 +178,49 @@ export class MapView {
     });
 
     container.append(form);
+  }
+
+  private renderLocationSearchResults(
+    resultsList: HTMLElement,
+    rankedResults: RankedLocationSearchResult[]
+  ): void {
+    resultsList.replaceChildren();
+    resultsList.hidden = rankedResults.length === 0;
+
+    for (const item of rankedResults) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "map-location-search-result";
+
+      const title = document.createElement("span");
+      title.className = "map-location-search-result-title";
+      title.textContent = item.result.label;
+
+      const bucket = document.createElement("span");
+      bucket.className = `map-location-search-result-bucket ${item.bucket}`;
+      bucket.textContent = item.bucketLabel;
+
+      button.append(title, bucket);
+      button.addEventListener("click", () => {
+        this.focusOnLocation(item.result);
+        const input = resultsList
+          .closest("form")
+          ?.querySelector<HTMLInputElement>("#mapLocationSearch");
+        const status = resultsList
+          .closest("form")
+          ?.querySelector<HTMLElement>(".map-location-search-status");
+
+        if (input) {
+          input.value = item.result.label;
+          input.focus();
+        }
+        if (status) {
+          status.textContent = item.result.label;
+        }
+      });
+
+      resultsList.append(button);
+    }
   }
 
   render(model: MapRenderModel): void {

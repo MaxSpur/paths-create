@@ -8,6 +8,8 @@
 - openrouteservice FAQ: https://openrouteservice.org/faq/
 - Overpass API overview: https://wiki.openstreetmap.org/wiki/Overpass_API
 - OpenStreetMap copyright and attribution: https://www.openstreetmap.org/copyright
+- Nominatim search API: https://nominatim.org/release-docs/latest/api/Search/
+- Nominatim usage policy: https://operations.osmfoundation.org/policies/nominatim/
 - Leaflet documentation: https://leafletjs.com/reference.html
 
 ## Repository References

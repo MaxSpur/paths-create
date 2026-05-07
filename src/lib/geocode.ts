@@ -36,6 +36,18 @@ export interface LocationSearchResult {
   };
 }
 
+export interface LocationSearchBounds {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+}
+
+export interface LocationSearchOptions {
+  limit?: number;
+  viewBox?: LocationSearchBounds;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -164,11 +176,17 @@ function parseBoundingBox(value: unknown): LocationSearchResult["boundingBox"] {
   return { south, west, north, east };
 }
 
-export async function searchLocations(query: string, limit = 5): Promise<LocationSearchResult[]> {
+export async function searchLocations(
+  query: string,
+  options: LocationSearchOptions | number = {}
+): Promise<LocationSearchResult[]> {
   const trimmedQuery = query.trim();
   if (!trimmedQuery) {
     return [];
   }
+
+  const normalizedOptions = typeof options === "number" ? { limit: options } : options;
+  const limit = normalizedOptions.limit ?? 5;
 
   return enqueue(async () => {
     const params = new URLSearchParams({
@@ -177,6 +195,11 @@ export async function searchLocations(query: string, limit = 5): Promise<Locatio
       limit: String(Math.max(1, Math.min(10, Math.round(limit)))),
       addressdetails: "1"
     });
+
+    if (normalizedOptions.viewBox) {
+      const { west, south, east, north } = normalizedOptions.viewBox;
+      params.set("viewbox", [west, south, east, north].join(","));
+    }
 
     const response = await fetch(`${NOMINATIM_SEARCH_URL}?${params.toString()}`, {
       headers: {

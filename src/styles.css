@@ -439,6 +439,65 @@ body,
   white-space: nowrap;
 }
 
+.map-location-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  max-height: 235px;
+  overflow: auto;
+}
+
+.map-location-search-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  border: 1px solid #d5dde8;
+  border-radius: 6px;
+  padding: 6px 7px;
+  background: #ffffff;
+  text-align: left;
+  cursor: pointer;
+}
+
+.map-location-search-result:hover,
+.map-location-search-result:focus-visible {
+  border-color: #8fb0c9;
+  background: #f4f9fc;
+  outline: none;
+}
+
+.map-location-search-result-title {
+  min-width: 0;
+  color: #0f172a;
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-location-search-result-bucket {
+  border-radius: 4px;
+  padding: 2px 4px;
+  color: #264055;
+  background: #e8f0f7;
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.map-location-search-result-bucket.visible {
+  color: #07534d;
+  background: #d7f3ee;
+}
+
+.map-location-search-result-bucket.nearby {
+  color: #69430c;
+  background: #f9ebcc;
+}
+
 @media (max-width: 980px) {
   .app-shell {
     grid-template-columns: 1fr;

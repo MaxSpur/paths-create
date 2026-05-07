@@ -301,21 +301,24 @@ export function createApp(root: HTMLElement): void {
           return draft;
         });
       },
-      onLocationSearch: async (query) => {
+      onLocationSearch: async (query, bounds) => {
         statusText = `Searching for ${query}...`;
         render();
 
         try {
-          const [result] = await searchLocations(query, 1);
-          if (!result) {
+          const results = await searchLocations(query, {
+            limit: 8,
+            viewBox: bounds
+          });
+          if (results.length === 0) {
             statusText = `No location found for ${query}.`;
             render();
-            return null;
+            return [];
           }
 
-          statusText = `Moved map to ${result.label}.`;
+          statusText = `Found ${results.length} location candidates for ${query}.`;
           render();
-          return result;
+          return results;
         } catch (error) {
           statusText = error instanceof Error ? error.message : String(error);
           render();

@@ -15,5 +15,6 @@
 - [x] Hardened panel rendering by centralizing HTML escaping.
 - [x] Replaced rail shortest-path unvisited scans with a min-priority queue.
 - [x] Added a top-right map location search control.
+- [x] Added ranked location search candidates biased by the current visible map bounds.
 - [x] Fixed point address clock updates so they no longer reset station-list scroll or active radius slider interactions.
 - [x] Refined `README.md` usage instructions around the actual panel/map workflow.

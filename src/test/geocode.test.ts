@@ -18,11 +18,21 @@ describe("searchLocations", () => {
       )
     );
 
-    const results = await searchLocations("Berlin", 1);
+    const results = await searchLocations("Berlin", {
+      limit: 1,
+      viewBox: {
+        south: 52.4,
+        west: 13.2,
+        north: 52.6,
+        east: 13.5
+      }
+    });
     const url = String(fetchMock.mock.calls[0]?.[0]);
 
     expect(url).toContain("https://nominatim.openstreetmap.org/search?");
     expect(url).toContain("q=Berlin");
+    expect(url).toContain("limit=1");
+    expect(url).toContain("viewbox=13.2%2C52.4%2C13.5%2C52.6");
     expect(results).toEqual([
       {
         label: "Berlin, Germany",
