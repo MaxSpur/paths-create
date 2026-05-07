@@ -1,5 +1,5 @@
 import { downloadZip } from "../lib/exportZip";
-import { reverseGeocodeLabel } from "../lib/geocode";
+import { reverseGeocodeLabel, searchLocations } from "../lib/geocode";
 import { generateTrips } from "../lib/generator";
 import { newId } from "../lib/ids";
 import { fetchNearbyStations } from "../lib/overpassClient";
@@ -10,7 +10,7 @@ import type { GenerationProgressUpdate } from "../lib/generator";
 import type { GeneratedTrip, GenerationReport, LatLon, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import { resolveMapClickAction, type EditMode } from "./interaction";
 import { MapView } from "./map";
-import { renderPanel } from "./panel";
+import { renderPanel, updatePointClocks, type PointClockView } from "./panel";
 
 interface GenerationArtifacts {
   report: GenerationReport;
@@ -86,10 +86,9 @@ export function createApp(root: HTMLElement): void {
 
   const buildPointClockView = (
     pointIds: string[]
-  ): Record<string, { phase: "debounce" | "queue" | "lookup"; progress: number; title: string }> => {
+  ): Record<string, PointClockView> => {
     const now = Date.now();
-    const view: Record<string, { phase: "debounce" | "queue" | "lookup"; progress: number; title: string }> =
-      {};
+    const view: Record<string, PointClockView> = {};
 
     for (const pointId of pointIds) {
       const state = pointClockStates.get(pointId);
@@ -301,6 +300,27 @@ export function createApp(root: HTMLElement): void {
           draft.ui.mapZoom = zoom;
           return draft;
         });
+      },
+      onLocationSearch: async (query) => {
+        statusText = `Searching for ${query}...`;
+        render();
+
+        try {
+          const [result] = await searchLocations(query, 1);
+          if (!result) {
+            statusText = `No location found for ${query}.`;
+            render();
+            return null;
+          }
+
+          statusText = `Moved map to ${result.label}.`;
+          render();
+          return result;
+        } catch (error) {
+          statusText = error instanceof Error ? error.message : String(error);
+          render();
+          throw error;
+        }
       }
     }
   );
@@ -883,7 +903,11 @@ export function createApp(root: HTMLElement): void {
     scrollSelectedIntoView = false;
   };
 
-  requestUiRefresh = render;
+  requestUiRefresh = () => {
+    const state = store.getState();
+    const activeStation = state.stations.find((item) => item.id === state.ui.activeStationId);
+    updatePointClocks(panelElement, buildPointClockView(activeStation?.walkPoints.map((point) => point.id) ?? []));
+  };
 
   window.addEventListener("keydown", (event) => {
     if (event.key !== "Delete" && event.key !== "Backspace") {

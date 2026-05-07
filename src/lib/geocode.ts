@@ -1,6 +1,7 @@
 import type { LatLon } from "./types";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
+const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
 const CACHE_DECIMALS = 5;
 const MAX_CONCURRENCY = 1;
 const MIN_REQUEST_GAP_MS = 2000;
@@ -21,6 +22,18 @@ let lastRequestStartedAt = 0;
 export interface ReverseGeocodeHooks {
   onQueued?: (info: { queuePosition: number; estimatedWaitMs: number }) => void;
   onStarted?: () => void;
+}
+
+export interface LocationSearchResult {
+  label: string;
+  lat: number;
+  lon: number;
+  boundingBox?: {
+    south: number;
+    west: number;
+    north: number;
+    east: number;
+  };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -124,6 +137,92 @@ function formatAddress(payload: {
   }
 
   return null;
+}
+
+function parseCoordinate(value: unknown): number | null {
+  if (typeof value !== "string" && typeof value !== "number") {
+    return null;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function parseBoundingBox(value: unknown): LocationSearchResult["boundingBox"] {
+  if (!Array.isArray(value) || value.length !== 4) {
+    return undefined;
+  }
+
+  const south = parseCoordinate(value[0]);
+  const north = parseCoordinate(value[1]);
+  const west = parseCoordinate(value[2]);
+  const east = parseCoordinate(value[3]);
+  if (south === null || north === null || west === null || east === null) {
+    return undefined;
+  }
+
+  return { south, west, north, east };
+}
+
+export async function searchLocations(query: string, limit = 5): Promise<LocationSearchResult[]> {
+  const trimmedQuery = query.trim();
+  if (!trimmedQuery) {
+    return [];
+  }
+
+  return enqueue(async () => {
+    const params = new URLSearchParams({
+      format: "jsonv2",
+      q: trimmedQuery,
+      limit: String(Math.max(1, Math.min(10, Math.round(limit)))),
+      addressdetails: "1"
+    });
+
+    const response = await fetch(`${NOMINATIM_SEARCH_URL}?${params.toString()}`, {
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Location search failed with status ${response.status}`);
+    }
+
+    const payload = await response.json();
+    if (!Array.isArray(payload)) {
+      return [];
+    }
+
+    return payload
+      .map((item): LocationSearchResult | null => {
+        if (!item || typeof item !== "object") {
+          return null;
+        }
+
+        const record = item as {
+          display_name?: unknown;
+          lat?: unknown;
+          lon?: unknown;
+          boundingbox?: unknown;
+        };
+        const lat = parseCoordinate(record.lat);
+        const lon = parseCoordinate(record.lon);
+        if (lat === null || lon === null) {
+          return null;
+        }
+
+        return {
+          label:
+            typeof record.display_name === "string" && record.display_name.trim()
+              ? record.display_name.trim()
+              : `${lat.toFixed(CACHE_DECIMALS)}, ${lon.toFixed(CACHE_DECIMALS)}`,
+          lat,
+          lon,
+          boundingBox: parseBoundingBox(record.boundingbox)
+        };
+      })
+      .filter((result): result is LocationSearchResult => result !== null);
+  });
 }
 
 export async function reverseGeocodeLabel(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<string> {

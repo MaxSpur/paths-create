@@ -5,6 +5,13 @@ import {
   stationRadiusMetersToSlider,
   stationRadiusSliderToMeters
 } from "../lib/stationRadius";
+import { escapeHtml } from "./html";
+
+export interface PointClockView {
+  phase: "debounce" | "queue" | "lookup";
+  progress: number;
+  title: string;
+}
 
 export interface PanelModel {
   mode: "idle" | "add_station" | "add_point";
@@ -20,14 +27,7 @@ export interface PanelModel {
   seed?: number;
   randomCount: number;
   nearbyCandidates: StationCandidate[];
-  pointClocks: Record<
-    string,
-    {
-      phase: "debounce" | "queue" | "lookup";
-      progress: number;
-      title: string;
-    }
-  >;
+  pointClocks: Record<string, PointClockView>;
   scrollSelectedIntoView?: boolean;
   generationProgress?: {
     phase: string;
@@ -67,26 +67,17 @@ export interface PanelCallbacks {
 }
 
 function stationOption(station: StationRecord, selectedId: string | null): string {
-  return `<option value="${station.id}" ${selectedId === station.id ? "selected" : ""}>${station.name}</option>`;
-}
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return `<option value="${escapeHtml(station.id)}" ${selectedId === station.id ? "selected" : ""}>${escapeHtml(station.name)}</option>`;
 }
 
 function pointRow(
   point: WalkPoint,
   selectedPointId: string | null,
-  pointClock?: { phase: "debounce" | "queue" | "lookup"; progress: number; title: string }
+  pointClock?: PointClockView
 ): string {
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
-  return `<tr data-point-id="${point.id}" class="${isSelected ? "is-selected" : ""}">
+  return `<tr data-point-id="${escapeHtml(point.id)}" class="${isSelected ? "is-selected" : ""}">
     <td>
       <span class="point-label">${escapeHtml(label)}</span>
     </td>
@@ -94,10 +85,7 @@ function pointRow(
       <div class="point-actions-inner">
         ${
           pointClock
-            ? `<span class="point-clock-dial ${pointClock.phase}" title="${escapeHtml(pointClock.title)}" style="--clock-progress:${Math.max(
-                0,
-                Math.min(1, pointClock.progress)
-              ).toFixed(3)}"></span>`
+            ? pointClockHtml(pointClock)
             : ""
         }
         <button data-point-up type="button">↑</button>
@@ -108,15 +96,75 @@ function pointRow(
   </tr>`;
 }
 
+function pointClockHtml(pointClock: PointClockView): string {
+  return `<span data-point-clock class="point-clock-dial ${pointClock.phase}" title="${escapeHtml(pointClock.title)}" style="--clock-progress:${Math.max(
+    0,
+    Math.min(1, pointClock.progress)
+  ).toFixed(3)}"></span>`;
+}
+
+function applyPointClockElementState(element: HTMLElement, pointClock: PointClockView): void {
+  element.className = `point-clock-dial ${pointClock.phase}`;
+  element.title = pointClock.title;
+  element.style.setProperty("--clock-progress", Math.max(0, Math.min(1, pointClock.progress)).toFixed(3));
+}
+
+export function updatePointClocks(container: HTMLElement, pointClocks: Record<string, PointClockView>): void {
+  for (const row of Array.from(container.querySelectorAll<HTMLElement>("tr[data-point-id]"))) {
+    const pointId = row.dataset.pointId;
+    if (!pointId) continue;
+
+    const pointClock = pointClocks[pointId];
+    const actions = row.querySelector<HTMLElement>(".point-actions-inner");
+    if (!actions) continue;
+
+    let clockElement = actions.querySelector<HTMLElement>("[data-point-clock]");
+    if (!pointClock) {
+      clockElement?.remove();
+      continue;
+    }
+
+    if (!clockElement) {
+      clockElement = document.createElement("span");
+      clockElement.dataset.pointClock = "";
+      actions.prepend(clockElement);
+    }
+
+    applyPointClockElementState(clockElement, pointClock);
+  }
+}
+
+interface PanelScrollState {
+  panelScrollTop: number;
+  stationListScrollTop: number | null;
+}
+
+function capturePanelScroll(container: HTMLElement): PanelScrollState {
+  return {
+    panelScrollTop: container.scrollTop,
+    stationListScrollTop: container.querySelector<HTMLElement>(".station-list")?.scrollTop ?? null
+  };
+}
+
+function restorePanelScroll(container: HTMLElement, scrollState: PanelScrollState): void {
+  container.scrollTop = scrollState.panelScrollTop;
+  if (scrollState.stationListScrollTop !== null) {
+    const stationList = container.querySelector<HTMLElement>(".station-list");
+    if (stationList) {
+      stationList.scrollTop = scrollState.stationListScrollTop;
+    }
+  }
+}
+
 function stationCard(station: StationRecord, model: PanelModel): string {
   const isActive = station.id === model.activeStationId;
   const isOrigin = station.id === model.selectedOriginStationId;
   const isDestination = station.id === model.selectedDestinationStationId;
   const radiusReadout = formatStationRadius(station.radiusM);
 
-  return `<div class="station-card" data-station-id="${station.id}">
+  return `<div class="station-card" data-station-id="${escapeHtml(station.id)}">
     <div class="station-title-row">
-      <input data-station-name type="text" value="${station.name}" />
+      <input data-station-name type="text" value="${escapeHtml(station.name)}" />
       <span>${station.walkPoints.length} points</span>
     </div>
     <div class="station-coords-row">
@@ -159,7 +207,7 @@ function progressHtml(model: PanelModel): string {
   const failures = report
     ? report.failures
         .slice(0, 6)
-        .map((failure) => `<li><code>${failure.code}</code> ${failure.message}</li>`)
+        .map((failure) => `<li><code>${escapeHtml(failure.code)}</code> ${escapeHtml(failure.message)}</li>`)
         .join("")
     : "";
 
@@ -184,25 +232,26 @@ function progressHtml(model: PanelModel): string {
 
 export function renderPanel(container: HTMLElement, model: PanelModel, callbacks: PanelCallbacks): void {
   const activeStation = model.stations.find((s) => s.id === model.activeStationId) ?? null;
+  const scrollState = capturePanelScroll(container);
 
   container.innerHTML = `
     <section>
       <h2>Settings</h2>
       <label>ORS API Key
-        <input id="orsApiKey" type="password" value="${model.orsApiKey}" placeholder="Paste your key" />
+        <input id="orsApiKey" type="password" value="${escapeHtml(model.orsApiKey)}" placeholder="Paste your key" />
       </label>
       <div class="btn-row">
         <button id="clearApiKey" type="button">Clear API key</button>
       </div>
       <label>Overpass URL
-        <input id="overpassUrl" type="text" value="${model.overpassUrl}" />
+        <input id="overpassUrl" type="text" value="${escapeHtml(model.overpassUrl)}" />
       </label>
       <div class="mode-row">
         <button id="modeIdle" type="button" ${model.mode === "idle" ? "disabled" : ""}>Idle</button>
         <button id="modeAddStation" type="button" ${model.mode === "add_station" ? "disabled" : ""}>Map click: add station</button>
         <button id="modeAddPoint" type="button" ${model.mode === "add_point" ? "disabled" : ""} ${activeStation ? "" : "disabled"}>Map click: add point</button>
       </div>
-      <div class="status-line">${model.statusText ?? ""}</div>
+      <div class="status-line">${escapeHtml(model.statusText ?? "")}</div>
     </section>
 
     <section>
@@ -214,7 +263,7 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         <select id="nearbySelect">
           <option value="">Select nearby station</option>
           ${model.nearbyCandidates
-            .map((c) => `<option value="${c.id}">${c.name} (${c.lat.toFixed(5)}, ${c.lon.toFixed(5)})</option>`)
+            .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${c.lat.toFixed(5)}, ${c.lon.toFixed(5)})</option>`)
             .join("")}
         </select>
         <button id="addNearby" type="button">Add selected</button>
@@ -239,7 +288,7 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
       ${
         activeStation
           ? `
-          <div><strong>${activeStation.name}</strong></div>
+          <div><strong>${escapeHtml(activeStation.name)}</strong></div>
           <div class="points-help">Click a map point to select it. In add-point mode, clicks inside the active station radius add a point or move the selected point. Clicks outside the radius deselect the point or activate another station if its radius was hit.</div>
           <div class="btn-row">
             <label>Random count <input id="randomCount" type="number" min="1" value="${model.randomCount}" /></label>
@@ -373,10 +422,6 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
         callbacks.onMovePoint(activeStation.id, pointId, "down");
       });
     }
-    if (model.scrollSelectedIntoView && model.selectedPointId) {
-      const selectedRow = container.querySelector<HTMLElement>(`tr[data-point-id="${model.selectedPointId}"]`);
-      selectedRow?.scrollIntoView({ block: "nearest" });
-    }
   }
 
   const tripCountInput = container.querySelector<HTMLInputElement>("#tripCount");
@@ -392,4 +437,13 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
   container.querySelector<HTMLButtonElement>("#download")?.addEventListener("click", callbacks.onDownload);
   container.querySelector<HTMLButtonElement>("#clearPreview")?.addEventListener("click", callbacks.onClearPreview);
   container.querySelector<HTMLButtonElement>("#resetAll")?.addEventListener("click", callbacks.onResetAll);
+
+  if (model.scrollSelectedIntoView && model.selectedPointId) {
+    const selectedRow = Array.from(container.querySelectorAll<HTMLElement>("tr[data-point-id]")).find(
+      (row) => row.dataset.pointId === model.selectedPointId
+    );
+    selectedRow?.scrollIntoView({ block: "nearest" });
+  } else {
+    restorePanelScroll(container, scrollState);
+  }
 }

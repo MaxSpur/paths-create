@@ -6,6 +6,66 @@ export interface RailGraph {
   edges: Map<number, Array<{ to: number; weight: number }>>;
 }
 
+class MinDistanceQueue {
+  private readonly items: Array<{ node: number; distance: number }> = [];
+
+  get size(): number {
+    return this.items.length;
+  }
+
+  push(node: number, distance: number): void {
+    this.items.push({ node, distance });
+    this.bubbleUp(this.items.length - 1);
+  }
+
+  pop(): { node: number; distance: number } | undefined {
+    const min = this.items[0];
+    const last = this.items.pop();
+    if (!last || this.items.length === 0) {
+      return min;
+    }
+
+    this.items[0] = last;
+    this.sinkDown(0);
+    return min;
+  }
+
+  private bubbleUp(index: number): void {
+    let current = index;
+    while (current > 0) {
+      const parent = Math.floor((current - 1) / 2);
+      if (this.items[parent].distance <= this.items[current].distance) {
+        break;
+      }
+      [this.items[parent], this.items[current]] = [this.items[current], this.items[parent]];
+      current = parent;
+    }
+  }
+
+  private sinkDown(index: number): void {
+    let current = index;
+
+    while (true) {
+      const left = current * 2 + 1;
+      const right = left + 1;
+      let smallest = current;
+
+      if (left < this.items.length && this.items[left].distance < this.items[smallest].distance) {
+        smallest = left;
+      }
+      if (right < this.items.length && this.items[right].distance < this.items[smallest].distance) {
+        smallest = right;
+      }
+      if (smallest === current) {
+        break;
+      }
+
+      [this.items[current], this.items[smallest]] = [this.items[smallest], this.items[current]];
+      current = smallest;
+    }
+  }
+}
+
 function addEdge(
   edges: Map<number, Array<{ to: number; weight: number }>>,
   from: number,
@@ -74,42 +134,42 @@ export function snapToNearestNode(
 export function shortestPath(graph: RailGraph, startNode: number, endNode: number): number[] | null {
   const distances = new Map<number, number>();
   const previous = new Map<number, number | null>();
-  const unvisited = new Set<number>(graph.nodes.keys());
+  const visited = new Set<number>();
+  const queue = new MinDistanceQueue();
 
-  for (const node of unvisited) {
+  for (const node of graph.nodes.keys()) {
     distances.set(node, Number.POSITIVE_INFINITY);
     previous.set(node, null);
   }
   distances.set(startNode, 0);
+  previous.set(startNode, null);
+  queue.push(startNode, 0);
 
-  while (unvisited.size > 0) {
-    let current: number | null = null;
-    let currentDistance = Number.POSITIVE_INFINITY;
-
-    for (const node of unvisited) {
-      const d = distances.get(node) ?? Number.POSITIVE_INFINITY;
-      if (d < currentDistance) {
-        currentDistance = d;
-        current = node;
-      }
+  while (queue.size > 0) {
+    const entry = queue.pop();
+    if (!entry || visited.has(entry.node)) {
+      continue;
     }
 
-    if (current === null || currentDistance === Number.POSITIVE_INFINITY) {
-      break;
+    const current = entry.node;
+    const currentDistance = distances.get(current) ?? Number.POSITIVE_INFINITY;
+    if (entry.distance > currentDistance || currentDistance === Number.POSITIVE_INFINITY) {
+      continue;
     }
 
-    unvisited.delete(current);
+    visited.add(current);
     if (current === endNode) {
       break;
     }
 
     const neighbors = graph.edges.get(current) ?? [];
     for (const neighbor of neighbors) {
-      if (!unvisited.has(neighbor.to)) continue;
+      if (visited.has(neighbor.to)) continue;
       const alt = currentDistance + neighbor.weight;
       if (alt < (distances.get(neighbor.to) ?? Number.POSITIVE_INFINITY)) {
         distances.set(neighbor.to, alt);
         previous.set(neighbor.to, current);
+        queue.push(neighbor.to, alt);
       }
     }
   }

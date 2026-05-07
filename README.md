@@ -15,7 +15,8 @@ The generated trips are exported as GPX files inside a ZIP archive, with elevati
 
 ## What You Can Do With It
 
-- Build a personal library of stations directly on a Leaflet map.
+- Select a collection of stations on a Leaflet map.
+- Search for a location to move the map quickly before creating or finding stations.
 - Assign each station a walking-access radius from 5 m to 5 km.
 - Add walking points manually by clicking on the map, or generate random points inside a station radius.
 - Set origin and destination stations for a generation run.
@@ -27,6 +28,7 @@ The generated trips are exported as GPX files inside a ZIP archive, with elevati
 Use the app in this order:
 
 1. Open the app and move the map to the city or area you want to work in.
+   Use the search field in the top-right of the map when you want to jump directly to a place.
    The `Find nearby stations at map center` action uses the current map center, so it helps to pan/zoom roughly to the right area first.
 2. In **Settings**, paste your openrouteservice key into `ORS API Key`.
    Leave the default `Overpass URL` alone unless you intentionally want to use a different Overpass instance.

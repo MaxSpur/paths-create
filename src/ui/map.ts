@@ -1,4 +1,5 @@
 import L from "leaflet";
+import type { LocationSearchResult } from "../lib/geocode";
 import type { GeneratedTrip, LatLon, LonLat, StationRecord } from "../lib/types";
 
 export interface MapCallbacks {
@@ -6,6 +7,7 @@ export interface MapCallbacks {
   onStationClick: (stationId: string) => void;
   onPointClick: (stationId: string, pointId: string) => void;
   onViewChange: (point: LatLon, zoom: number) => void;
+  onLocationSearch: (query: string) => Promise<LocationSearchResult | null>;
 }
 
 export interface MapRenderModel {
@@ -52,6 +54,8 @@ export class MapView {
       const center = this.map.getCenter();
       this.callbacks.onViewChange({ lat: center.lat, lon: center.lng }, this.map.getZoom());
     });
+
+    this.addLocationSearchControl(container);
   }
 
   getCenter(): LatLon {
@@ -72,6 +76,85 @@ export class MapView {
       maxZoom: 18,
       padding: [28, 28]
     });
+  }
+
+  private focusOnLocation(result: LocationSearchResult): void {
+    const bbox = result.boundingBox;
+    if (bbox && bbox.south !== bbox.north && bbox.west !== bbox.east) {
+      this.map.fitBounds(
+        L.latLngBounds(
+          [bbox.south, bbox.west],
+          [bbox.north, bbox.east]
+        ).pad(0.18),
+        {
+          animate: true,
+          duration: 0.45,
+          maxZoom: 16,
+          padding: [36, 36]
+        }
+      );
+      return;
+    }
+
+    this.map.setView([result.lat, result.lon], Math.max(this.map.getZoom(), 14), {
+      animate: true,
+      duration: 0.45
+    });
+  }
+
+  private addLocationSearchControl(container: HTMLElement): void {
+    const form = document.createElement("form");
+    form.className = "map-location-search";
+    form.setAttribute("role", "search");
+    form.innerHTML = `
+      <label class="sr-only" for="mapLocationSearch">Search location</label>
+      <div class="map-location-search-row">
+        <input id="mapLocationSearch" type="search" placeholder="Search location" autocomplete="off" />
+        <button type="submit">Go</button>
+      </div>
+      <div class="map-location-search-status" aria-live="polite"></div>
+    `;
+
+    const input = form.querySelector<HTMLInputElement>("#mapLocationSearch");
+    const button = form.querySelector<HTMLButtonElement>("button");
+    const status = form.querySelector<HTMLElement>(".map-location-search-status");
+
+    L.DomEvent.disableClickPropagation(form);
+    L.DomEvent.disableScrollPropagation(form);
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const query = input?.value.trim() ?? "";
+      if (!query || !button || !status || !input) {
+        return;
+      }
+
+      button.disabled = true;
+      input.disabled = true;
+      status.textContent = "Searching...";
+
+      void this.callbacks.onLocationSearch(query)
+        .then((result) => {
+          if (!result) {
+            status.textContent = "No results.";
+            return;
+          }
+
+          this.focusOnLocation(result);
+          input.value = result.label;
+          status.textContent = result.label;
+        })
+        .catch((error: unknown) => {
+          status.textContent = error instanceof Error ? error.message : String(error);
+        })
+        .finally(() => {
+          button.disabled = false;
+          input.disabled = false;
+          input.focus();
+        });
+    });
+
+    container.append(form);
   }
 
   render(model: MapRenderModel): void {
