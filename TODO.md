@@ -19,4 +19,5 @@
 - [x] Fixed point address clock updates so they no longer reset station-list scroll or active radius slider interactions.
 - [x] Added per-point `M`/`D` route-mode toggles and direct driving trip generation.
 - [x] Encoded per-point metro/driving mode on map markers with distinct colors.
+- [x] Enriched GPX export with explicit transport tracks, segment metadata, and structured point address extensions.
 - [x] Refined `README.md` usage instructions around the actual panel/map workflow.

@@ -1,4 +1,4 @@
-import type { AppState, StationRecord, WalkPoint } from "./types";
+import type { AppState, StationRecord, StructuredAddress, WalkPoint } from "./types";
 import { clampStationRadiusM } from "./stationRadius";
 
 export const STORAGE_KEY = "odc.generator.state.v1";
@@ -12,6 +12,29 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+function normalizeStructuredAddress(raw: unknown): StructuredAddress | undefined {
+  if (!isObject(raw)) return undefined;
+
+  const displayName = typeof raw.displayName === "string" && raw.displayName.trim()
+    ? raw.displayName.trim()
+    : undefined;
+  const rawComponents = isObject(raw.components) ? raw.components : {};
+  const components = Object.fromEntries(
+    Object.entries(rawComponents)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+      .map(([key, value]) => [key, value.trim()])
+  );
+
+  if (!displayName && Object.keys(components).length === 0) {
+    return undefined;
+  }
+
+  return {
+    displayName,
+    components: Object.keys(components).length > 0 ? components : undefined
+  };
 }
 
 function normalizeStation(raw: unknown): StationRecord | null {
@@ -37,6 +60,7 @@ function normalizeStation(raw: unknown): StationRecord | null {
         lat: p.lat as number,
         lon: p.lon as number,
         label: typeof p.label === "string" ? p.label : undefined,
+        address: normalizeStructuredAddress(p.address),
         addressStatus: normalizedStatus,
         tripMode: normalizedTripMode
       };

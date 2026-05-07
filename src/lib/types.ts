@@ -2,11 +2,17 @@ export type PairingMode = "round_robin_shuffle";
 export type PointTripMode = "metro" | "driving";
 export type TripRouteMode = "metro" | "driving";
 
+export interface StructuredAddress {
+  displayName?: string;
+  components?: Record<string, string>;
+}
+
 export interface WalkPoint {
   id: string;
   lat: number;
   lon: number;
   label?: string;
+  address?: StructuredAddress;
   addressStatus?: "resolving" | "resolved" | "failed";
   tripMode?: PointTripMode;
 }

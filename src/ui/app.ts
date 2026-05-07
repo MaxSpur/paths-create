@@ -1,5 +1,5 @@
 import { downloadZip } from "../lib/exportZip";
-import { reverseGeocodeLabel, searchLocations } from "../lib/geocode";
+import { reverseGeocode, searchLocations } from "../lib/geocode";
 import { generateTrips } from "../lib/generator";
 import { newId } from "../lib/ids";
 import { fetchNearbyStations } from "../lib/overpassClient";
@@ -162,7 +162,7 @@ export function createApp(root: HTMLElement): void {
     const timer = window.setTimeout(async () => {
       pointAddressTimers.delete(pointId);
       try {
-        const label = await reverseGeocodeLabel(
+        const geocoded = await reverseGeocode(
           { lat, lon },
           {
             onQueued: ({ estimatedWaitMs }) => {
@@ -199,7 +199,8 @@ export function createApp(root: HTMLElement): void {
             return draft;
           }
 
-          point.label = label;
+          point.label = geocoded.label;
+          point.address = geocoded.address;
           point.addressStatus = "resolved";
           return draft;
         });
@@ -217,6 +218,7 @@ export function createApp(root: HTMLElement): void {
           }
 
           point.addressStatus = "failed";
+          point.address = undefined;
           if (!point.label || point.label === "Resolving address...") {
             point.label = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
           }
@@ -445,6 +447,7 @@ export function createApp(root: HTMLElement): void {
       selectedPoint.lat = point.lat;
       selectedPoint.lon = point.lon;
       selectedPoint.label = "Resolving address...";
+      selectedPoint.address = undefined;
       selectedPoint.addressStatus = "resolving";
       moved = true;
       return draft;

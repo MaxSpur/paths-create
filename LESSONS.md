@@ -23,6 +23,11 @@
 - Treat per-point `driving` mode as a pair-level override: any generated pair containing a driving point should become a direct point-to-point driving trip.
 - Request ORS driving alternatives once per unique driving pair, then randomly choose among returned alternatives per generated trip to increase variety without multiplying API calls.
 
+## Export Format
+
+- Keep transport semantics explicit in GPX exports. Use GPX tracks and `odc` extensions rather than relying on implicit track-segment order.
+- Preserve structured address components when reverse geocoding provides them; labels alone are useful for humans but weak for downstream tooling.
+
 ## Async Address Lookup
 
 - Debounce address refreshes after moving a point; each move should reset the pending lookup.

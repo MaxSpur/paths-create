@@ -345,8 +345,11 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       const gpx = buildTripGpx({
         id: tripId,
         name: tripName,
-        originStationName: input.originStation.name,
-        destinationStationName: input.destinationStation.name,
+        routeMode: "driving",
+        originStation: input.originStation,
+        destinationStation: input.destinationStation,
+        originPoint: pair.origin,
+        destinationPoint: pair.destination,
         walkIn: [],
         metro: [],
         walkOut: [],
@@ -402,8 +405,11 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     const gpx = buildTripGpx({
       id: tripId,
       name: tripName,
-      originStationName: input.originStation.name,
-      destinationStationName: input.destinationStation.name,
+      routeMode: "metro",
+      originStation: input.originStation,
+      destinationStation: input.destinationStation,
+      originPoint: pair.origin,
+      destinationPoint: pair.destination,
       walkIn,
       metro: metroCoords,
       walkOut

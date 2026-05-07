@@ -19,7 +19,7 @@ Runtime entry: `src/main.ts` mounts `createApp` from `src/ui/app.ts`.
 - `src/lib/overpassClient.ts`: Overpass station and rail queries.
 - `src/lib/geocode.ts`: Nominatim-backed forward location search and reverse walk-point label lookup with serialized/rate-limited requests.
 - `src/lib/railGraph.ts`: rail graph construction, station snapping, and shortest path search.
-- `src/lib/gpxWriter.ts` and `src/lib/exportZip.ts`: GPX serialization and ZIP download.
+- `src/lib/gpxWriter.ts` and `src/lib/exportZip.ts`: enriched GPX serialization and ZIP download.
 - `src/lib/stationRadius.ts`, `src/lib/sampling.ts`, `src/lib/pairing.ts`, `src/lib/geo.ts`: focused domain helpers with tests.
 
 ## State Model
@@ -46,9 +46,15 @@ All loaded state is normalized through `stateStore.ts`. Invalid station selectio
 4. For metro trips, fetch rail ways from Overpass, build the rail graph, snap stations to rail nodes, compute the shortest rail path, and drape the rail path with ORS elevation.
 5. For metro trips, fetch walking legs from ORS with retry/backoff.
 6. For driving trips, fetch ORS driving alternatives once per unique point pair and randomly choose an available alternative per generated trip.
-7. Assemble trip geometries and serialize one GPX file per generated trip.
+7. Assemble trip geometries and serialize one enriched GPX file per generated trip.
 
 Walking and driving directions request elevation directly from ORS. Rail elevation is added through ORS line draping because OSM rail geometry has no elevation.
+
+## GPX Export Contract
+
+GPX files are standard GPX 1.1 with project-specific metadata in the `odc` namespace. Metro trips export one GPX track per leg (`walking`, `metro`, `walking`); driving trips export one `driving` track. Each track has one `trkseg`, explicit `<type>`, `odc:segment` metadata, and a segment-level `odc:segmentRef`. Trip metadata includes station IDs, point IDs, point route modes, labels, and structured address components when available.
+
+Keep [GPX_EXPORT.md](GPX_EXPORT.md) in sync with `src/lib/gpxWriter.ts` whenever the exported XML contract changes.
 
 ## Interaction Model
 

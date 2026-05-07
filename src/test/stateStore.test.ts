@@ -13,7 +13,21 @@ describe("stateStore", () => {
         lat: 10,
         lon: 20,
         radiusM: 400,
-        walkPoints: [{ id: "p1", lat: 10.001, lon: 20.001, label: "a" }]
+        walkPoints: [
+          {
+            id: "p1",
+            lat: 10.001,
+            lon: 20.001,
+            label: "a",
+            address: {
+              displayName: "Address A",
+              components: {
+                road: "Main Street",
+                empty: ""
+              }
+            }
+          }
+        ]
       });
       draft.selectedOriginStationId = "st1";
       draft.selectedDestinationStationId = "st1";
@@ -26,6 +40,12 @@ describe("stateStore", () => {
     expect(loaded.stations).toHaveLength(1);
     expect(loaded.stations[0].walkPoints).toHaveLength(1);
     expect(loaded.stations[0].walkPoints[0]?.tripMode).toBe("metro");
+    expect(loaded.stations[0].walkPoints[0]?.address).toEqual({
+      displayName: "Address A",
+      components: {
+        road: "Main Street"
+      }
+    });
     expect(loaded.selectedOriginStationId).toBe("st1");
   });
 

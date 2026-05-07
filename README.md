@@ -13,7 +13,7 @@ It lets you define origin and destination stations, build walking-access point p
 
 Individual points can also be switched to direct driving mode. Any generated pair containing a driving-mode point uses an ORS driving route directly between the paired points instead of the walking + rail + walking pipeline.
 
-The generated trips are exported as GPX files inside a ZIP archive, with elevation included when available from openrouteservice.
+The generated trips are exported as GPX files inside a ZIP archive, with elevation included when available from openrouteservice. The GPX files include explicit transport-leg metadata in a custom `odc` XML namespace; see [GPX_EXPORT.md](GPX_EXPORT.md).
 
 ## What You Can Do With It
 
@@ -132,10 +132,9 @@ According to the ORS FAQ, quota resets every 24 hours. If you exceed the quota, 
 
 Each generated trip is exported as GPX and contains:
 
-- the walk-in route geometry,
-- the rail route geometry between the chosen stations,
-- the walk-out route geometry,
-- or, for driving-mode pairs, one direct driving route geometry,
+- one named GPX track per transport leg,
+- explicit `<type>` values: `walking`, `metro`, or `driving`,
+- `odc:*` metadata for route mode, segment role, station IDs, point IDs, point modes, labels, and structured address components when available,
 - elevation in GPX track points when ORS provides it.
 
 The download is a ZIP archive containing one GPX file per generated trip.

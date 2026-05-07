@@ -1,4 +1,4 @@
-import type { LatLon } from "./types";
+import type { LatLon, StructuredAddress } from "./types";
 
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/reverse";
 const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
@@ -6,7 +6,7 @@ const CACHE_DECIMALS = 5;
 const MAX_CONCURRENCY = 1;
 const MIN_REQUEST_GAP_MS = 2000;
 
-const cache = new Map<string, string>();
+const cache = new Map<string, ReverseGeocodeResult>();
 
 type QueueEntry<T> = {
   task: () => Promise<T>;
@@ -46,6 +46,11 @@ export interface LocationSearchBounds {
 export interface LocationSearchOptions {
   limit?: number;
   viewBox?: LocationSearchBounds;
+}
+
+export interface ReverseGeocodeResult {
+  label: string;
+  address?: StructuredAddress;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -151,6 +156,36 @@ function formatAddress(payload: {
   return null;
 }
 
+function normalizeAddressComponents(value: unknown): Record<string, string> | undefined {
+  if (typeof value !== "object" || value === null) {
+    return undefined;
+  }
+
+  const components = Object.fromEntries(
+    Object.entries(value)
+      .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+      .map(([key, component]) => [key, component.trim()])
+  );
+
+  return Object.keys(components).length > 0 ? components : undefined;
+}
+
+function structuredAddressFromPayload(payload: {
+  display_name?: unknown;
+  address?: unknown;
+}): StructuredAddress | undefined {
+  const displayName = typeof payload.display_name === "string" && payload.display_name.trim()
+    ? payload.display_name.trim()
+    : undefined;
+  const components = normalizeAddressComponents(payload.address);
+
+  if (!displayName && !components) {
+    return undefined;
+  }
+
+  return { displayName, components };
+}
+
 function parseCoordinate(value: unknown): number | null {
   if (typeof value !== "string" && typeof value !== "number") {
     return null;
@@ -248,14 +283,14 @@ export async function searchLocations(
   });
 }
 
-export async function reverseGeocodeLabel(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<string> {
+export async function reverseGeocode(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<ReverseGeocodeResult> {
   const key = cacheKey(point);
   const cached = cache.get(key);
   if (cached) {
     return cached;
   }
 
-  const label = await enqueue(async () => {
+  const result = await enqueue(async () => {
     const params = new URLSearchParams({
       format: "jsonv2",
       lat: String(point.lat),
@@ -275,16 +310,27 @@ export async function reverseGeocodeLabel(point: LatLon, hooks?: ReverseGeocodeH
     }
 
     const payload = (await response.json()) as {
-      display_name?: string;
-      address?: Record<string, string>;
+      display_name?: unknown;
+      address?: unknown;
     };
+    const formattedLabel =
+      formatAddress({
+        display_name: typeof payload.display_name === "string" ? payload.display_name : undefined,
+        address: normalizeAddressComponents(payload.address)
+      }) ??
+      `${point.lat.toFixed(CACHE_DECIMALS)}, ${point.lon.toFixed(CACHE_DECIMALS)}`;
 
-    return (
-      formatAddress(payload) ??
-      `${point.lat.toFixed(CACHE_DECIMALS)}, ${point.lon.toFixed(CACHE_DECIMALS)}`
-    );
+    return {
+      label: formattedLabel,
+      address: structuredAddressFromPayload(payload)
+    };
   }, hooks);
 
-  cache.set(key, label);
-  return label;
+  cache.set(key, result);
+  return result;
+}
+
+export async function reverseGeocodeLabel(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<string> {
+  const result = await reverseGeocode(point, hooks);
+  return result.label;
 }

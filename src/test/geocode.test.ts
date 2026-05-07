@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { searchLocations } from "../lib/geocode";
+import { reverseGeocode, searchLocations } from "../lib/geocode";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("searchLocations", () => {
   it("normalizes Nominatim search results", async () => {
@@ -46,5 +50,39 @@ describe("searchLocations", () => {
         }
       }
     ]);
+  });
+});
+
+describe("reverseGeocode", () => {
+  it("returns a display label with structured address details", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          display_name: "Origin Road 1, Mitte, Berlin, Germany",
+          address: {
+            road: "Origin Road",
+            house_number: "1",
+            city: "Berlin",
+            country: "Germany"
+          }
+        }),
+        { status: 200 }
+      )
+    );
+
+    const result = await reverseGeocode({ lat: 50.12345, lon: 8.12345 });
+
+    expect(result).toEqual({
+      label: "Origin Road 1, Berlin",
+      address: {
+        displayName: "Origin Road 1, Mitte, Berlin, Germany",
+        components: {
+          road: "Origin Road",
+          house_number: "1",
+          city: "Berlin",
+          country: "Germany"
+        }
+      }
+    });
   });
 });

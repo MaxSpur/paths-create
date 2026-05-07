@@ -135,6 +135,10 @@ describe("generateTrips integration", () => {
       runB.trips.map((trip) => `${trip.originPoint.id}-${trip.destinationPoint.id}`)
     );
     expect(runA.trips[0]?.gpx).toContain("<ele>");
+    expect(runA.trips[0]?.gpx).toContain("xmlns:odc=");
+    expect(runA.trips[0]?.gpx).toContain('routeMode="metro"');
+    expect(runA.trips[0]?.gpx).toContain('<type>walking</type>');
+    expect(runA.trips[0]?.gpx).toContain('<type>metro</type>');
     expect(runA.trips[0]?.metroCoords[0]?.[2]).toBe(200);
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes("/elevation/line"))).toBe(true);
     expect(fetchMock).toHaveBeenCalled();
@@ -221,6 +225,8 @@ describe("generateTrips integration", () => {
     expect(result.trips.every((trip) => trip.routeMode === "driving")).toBe(true);
     expect(result.trips.every((trip) => trip.drivingCoords.length === 3)).toBe(true);
     expect(result.trips.every((trip) => trip.metroCoords.length === 0)).toBe(true);
+    expect(result.trips.every((trip) => trip.gpx.includes('routeMode="driving"'))).toBe(true);
+    expect(result.trips.every((trip) => trip.gpx.includes("<type>driving</type>"))).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
