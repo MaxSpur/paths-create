@@ -20,6 +20,24 @@ export interface MapRenderModel {
   previewTrips: GeneratedTrip[];
 }
 
+function pointMarkerColors(point: { tripMode?: "metro" | "driving" }, isSelected: boolean): {
+  color: string;
+  fillColor: string;
+} {
+  const isDriving = point.tripMode === "driving";
+  if (isDriving) {
+    return {
+      color: isSelected ? "#581c87" : "#7c3aed",
+      fillColor: isSelected ? "#c084fc" : "#a78bfa"
+    };
+  }
+
+  return {
+    color: isSelected ? "#b45309" : "#f97316",
+    fillColor: isSelected ? "#facc15" : "#fb923c"
+  };
+}
+
 export class MapView {
   private readonly map: L.Map;
 
@@ -269,15 +287,16 @@ export class MapView {
     if (activeStation) {
       for (const point of activeStation.walkPoints) {
         const isSelected = point.id === model.selectedPointId;
+        const colors = pointMarkerColors(point, isSelected);
         const marker = L.circleMarker([point.lat, point.lon], {
           radius: isSelected ? 7 : 5,
-          color: isSelected ? "#b45309" : "#f97316",
-          fillColor: isSelected ? "#facc15" : "#fb923c",
+          color: colors.color,
+          fillColor: colors.fillColor,
           fillOpacity: 0.96,
           weight: isSelected ? 2.2 : 1.5,
           bubblingMouseEvents: false
         });
-        marker.bindTooltip(point.label || point.id, { direction: "top" });
+        marker.bindTooltip(`${point.tripMode === "driving" ? "Driving" : "Metro"}: ${point.label || point.id}`, { direction: "top" });
         marker.on("click", (event: L.LeafletMouseEvent) => {
           L.DomEvent.stop(event);
           this.callbacks.onPointClick(activeStation.id, point.id);

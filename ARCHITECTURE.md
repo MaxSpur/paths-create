@@ -57,6 +57,7 @@ Walking and driving directions request elevation directly from ORS. Rail elevati
 - Existing station clicks activate that station in any mode.
 - Existing walk point clicks select or deselect that point.
 - Active station point rows have an `M`/`D` toggle. `M` keeps the point on the metro pipeline; `D` makes generated pairs containing that point use direct driving.
+- Active station map points encode route mode visually: metro points use the orange marker palette, driving points use purple/violet.
 - `add_point` mode adds or moves points only inside the active station radius.
 - Clicking outside the active station radius deselects the selected point before any other add action.
 - `add_station` mode adds stations only outside all existing station radii.

@@ -59,7 +59,7 @@ Use the app in this order:
 7. Choose the trip endpoints.
    Use either the `Origin station` / `Destination station` dropdowns or the `Set origin` / `Set destination` buttons in each station card.
    For useful output, both the origin and destination stations should have at least one point; more points give the generator more combinations and reduce repetition.
-   If either point in a generated origin/destination pair is set to `D`, that trip is generated as a direct driving route. Otherwise, it uses the metro pipeline.
+   If either point in a generated origin/destination pair is set to `D`, that trip is generated as a direct driving route. Otherwise, it uses the metro pipeline. Metro points are orange on the map; driving points are purple.
 8. Generate trips in **Generate Trips**.
    - set `Trip count`,
    - optionally set `Seed` if you want reproducible results,
