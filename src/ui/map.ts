@@ -15,6 +15,7 @@ export interface MapRenderModel {
   stations: StationRecord[];
   activeStationId: string | null;
   selectedPointId: string | null;
+  selectedTripId: string | null;
   selectedOriginStationId: string | null;
   selectedDestinationStationId: string | null;
   previewTrips: GeneratedTrip[];
@@ -36,6 +37,12 @@ function pointMarkerColors(point: { tripMode?: "metro" | "driving" }, isSelected
     color: isSelected ? "#b45309" : "#f97316",
     fillColor: isSelected ? "#facc15" : "#fb923c"
   };
+}
+
+function tripCoordinates(trip: GeneratedTrip): LonLat[] {
+  return trip.routeMode === "driving"
+    ? trip.drivingCoords
+    : [...trip.walkInCoords, ...trip.metroCoords, ...trip.walkOutCoords];
 }
 
 export class MapView {
@@ -104,6 +111,29 @@ export class MapView {
       duration: 0.45,
       maxZoom: 18,
       padding: [28, 28]
+    });
+  }
+
+  focusOnTrip(trip: GeneratedTrip): void {
+    const coords = tripCoordinates(trip);
+    if (coords.length === 0) {
+      return;
+    }
+
+    this.map.invalidateSize();
+    if (coords.length === 1) {
+      this.map.setView([coords[0][1], coords[0][0]], Math.max(this.map.getZoom(), 16), {
+        animate: true,
+        duration: 0.35
+      });
+      return;
+    }
+
+    const bounds = L.latLngBounds(coords.map((coord) => [coord[1], coord[0]]));
+    this.map.fitBounds(bounds.pad(0.16), {
+      animate: true,
+      duration: 0.45,
+      padding: [34, 34]
     });
   }
 
@@ -305,15 +335,44 @@ export class MapView {
       }
     }
 
-    for (const trip of model.previewTrips) {
-      const toLatLng = (coords: LonLat[]) => coords.map((c) => L.latLng(c[1], c[0]));
-      if (trip.routeMode === "driving") {
-        L.polyline(toLatLng(trip.drivingCoords), { color: "#7c3aed", weight: 3.7, opacity: 0.82 }).addTo(this.previewLayer);
-      } else {
-        L.polyline(toLatLng(trip.walkInCoords), { color: "#2f855a", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
-        L.polyline(toLatLng(trip.metroCoords), { color: "#1d4ed8", weight: 3.6, opacity: 0.84 }).addTo(this.previewLayer);
-        L.polyline(toLatLng(trip.walkOutCoords), { color: "#b45309", weight: 3.4, opacity: 0.8 }).addTo(this.previewLayer);
-      }
+    const sortedTrips = [...model.previewTrips].sort((left, right) => {
+      if (left.id === model.selectedTripId) return 1;
+      if (right.id === model.selectedTripId) return -1;
+      return 0;
+    });
+    for (const trip of sortedTrips) {
+      this.renderTripPreview(trip, trip.id === model.selectedTripId, Boolean(model.selectedTripId));
     }
+  }
+
+  private renderTripPreview(trip: GeneratedTrip, isSelected: boolean, hasSelectedTrip: boolean): void {
+    const toLatLng = (coords: LonLat[]) => coords.map((c) => L.latLng(c[1], c[0]));
+    const baseOpacity = hasSelectedTrip && !isSelected ? 0.22 : 0.82;
+    const selectedWeightBoost = isSelected ? 2.1 : 0;
+
+    if (trip.routeMode === "driving") {
+      L.polyline(toLatLng(trip.drivingCoords), {
+        color: "#7c3aed",
+        weight: 3.7 + selectedWeightBoost,
+        opacity: isSelected ? 0.96 : baseOpacity
+      }).addTo(this.previewLayer);
+      return;
+    }
+
+    L.polyline(toLatLng(trip.walkInCoords), {
+      color: "#2f855a",
+      weight: 3.4 + selectedWeightBoost,
+      opacity: isSelected ? 0.96 : baseOpacity
+    }).addTo(this.previewLayer);
+    L.polyline(toLatLng(trip.metroCoords), {
+      color: "#1d4ed8",
+      weight: 3.6 + selectedWeightBoost,
+      opacity: isSelected ? 0.98 : Math.min(0.84, baseOpacity)
+    }).addTo(this.previewLayer);
+    L.polyline(toLatLng(trip.walkOutCoords), {
+      color: "#b45309",
+      weight: 3.4 + selectedWeightBoost,
+      opacity: isSelected ? 0.96 : baseOpacity
+    }).addTo(this.previewLayer);
   }
 }

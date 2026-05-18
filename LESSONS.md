@@ -22,6 +22,7 @@
 
 - Treat per-point `driving` mode as a pair-level override: any generated pair containing a driving point should become a direct point-to-point driving trip.
 - Request ORS driving alternatives once per unique driving pair, then randomly choose among returned alternatives per generated trip to increase variety without multiplying API calls.
+- Do not replace or clear previously generated successful trips during a new generation run. Append only new pair keys and let the user delete generated trips explicitly.
 
 ## Export Format
 

@@ -229,6 +229,87 @@ body,
   background: #ecfeff;
 }
 
+.trips-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.generated-trip-list {
+  max-height: 260px;
+  overflow: auto;
+}
+
+.trips-table th,
+.trips-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 5px 4px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.trips-table tr {
+  cursor: pointer;
+}
+
+.trips-table tr.is-selected td {
+  background: #eef6ff;
+}
+
+.trip-label,
+.trip-file {
+  display: block;
+  max-width: 255px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trip-label {
+  font-size: 0.78rem;
+  color: #0f172a;
+}
+
+.trip-file {
+  margin-top: 2px;
+  font-size: 0.68rem;
+  color: #64748b;
+}
+
+.trip-mode {
+  display: inline-block;
+  min-width: 50px;
+  border: 1px solid #b8c4d1;
+  border-radius: 5px;
+  padding: 2px 5px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.trip-mode.metro {
+  border-color: #9eb9d7;
+  color: #17456b;
+  background: #eaf3ff;
+}
+
+.trip-mode.driving {
+  border-color: #c6acef;
+  color: #5526a4;
+  background: #f2ecff;
+}
+
+.trip-actions {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.generated-trip-summary,
+.empty-list-note {
+  margin-bottom: 8px;
+  font-size: 0.75rem;
+  color: #475569;
+}
+
 .point-label {
   display: inline-block;
   max-width: 220px;

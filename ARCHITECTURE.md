@@ -41,7 +41,7 @@ All loaded state is normalized through `stateStore.ts`. Invalid station selectio
 `generateTrips` performs the core workflow:
 
 1. Validate ORS key and point pools.
-2. Build anti-repeat origin/destination point pairings.
+2. Build unused origin/destination point pairings, excluding pair keys already present in the generated-trip list.
 3. Split pairs into metro trips and driving trips. Any pair containing a `driving` point becomes a direct driving trip.
 4. For metro trips, fetch rail ways from Overpass, build the rail graph, snap stations to rail nodes, compute the shortest rail path, and drape the rail path with ORS elevation.
 5. For metro trips, fetch walking legs from ORS with retry/backoff.
@@ -49,6 +49,8 @@ All loaded state is normalized through `stateStore.ts`. Invalid station selectio
 7. Assemble trip geometries and serialize one enriched GPX file per generated trip.
 
 Walking and driving directions request elevation directly from ORS. Rail elevation is added through ORS line draping because OSM rail geometry has no elevation.
+
+Generated trips are kept in an in-memory UI list for the current page session. New generation runs append successful trips to that list and do not remove older successful routes. The app derives map previews and ZIP downloads from the full generated-trip list.
 
 ## GPX Export Contract
 
@@ -64,6 +66,7 @@ Keep [GPX_EXPORT.md](GPX_EXPORT.md) in sync with `src/lib/gpxWriter.ts` whenever
 - Existing walk point clicks select or deselect that point.
 - Active station point rows have an `M`/`D` toggle. `M` keeps the point on the metro pipeline; `D` makes generated pairs containing that point use direct driving.
 - Active station map points encode route mode visually: metro points use the orange marker palette, driving points use purple/violet.
+- Generated trips are listed in the sidebar. Selecting a trip highlights it on the map and focuses the map to its bounds; individual trips or the full generated list can be deleted.
 - `add_point` mode adds or moves points only inside the active station radius.
 - Clicking outside the active station radius deselects the selected point before any other add action.
 - `add_station` mode adds stations only outside all existing station radii.

@@ -24,6 +24,7 @@ The generated trips are exported as GPX files inside a ZIP archive, with elevati
 - Toggle individual points between metro mode and direct driving mode.
 - Set origin and destination stations for a generation run.
 - Generate multiple trips while rotating through available point pairs to reduce repetition.
+- Keep generated trips in a list, select one to highlight it on the map, and delete individual trips or the whole list.
 - Export the result as GPX files for use in route visualization, testing, demos, or import into other tools.
 
 ## How To Use It
@@ -65,10 +66,12 @@ Use the app in this order:
    - optionally set `Seed` if you want reproducible results,
    - click `Generate`.
    The progress box shows the current phase and ends with a short generation report.
+   Later generation runs only request origin/destination point pairs that are not already in the generated-trip list, then append successful new trips to that list.
 9. Review and export.
    - generated routes are drawn on the map as a preview,
-   - `Clear preview` removes the current preview without deleting your stations or points,
-   - `Download GPX ZIP` becomes useful after a successful generation run and downloads one GPX file per generated trip.
+   - select a row in **Generated Trips** to highlight and focus that route,
+   - delete individual rows, or use `Delete all` to clear the generated-trip list without deleting stations or points,
+   - `Download GPX ZIP` becomes useful after at least one successful generated trip and downloads one GPX file per trip in the list.
 
 ### Important Editing Rules
 
@@ -147,6 +150,7 @@ The download is a ZIP archive containing one GPX file per generated trip.
 - Direct driving routes and driving alternatives come from openrouteservice.
 - The rail leg is computed from OSM rail graph data and then elevation-draped through ORS.
 - State is persisted locally in the browser via `localStorage`.
+- Generated trip previews are session-local and are cleared by page reloads or `Delete all`.
 
 ## Privacy And Local Data
 

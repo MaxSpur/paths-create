@@ -25,8 +25,10 @@ function createCallbacks(): PanelCallbacks {
     onTripCountChange: noop,
     onSeedChange: noop,
     onGenerate: noop,
+    onSelectTrip: noop,
+    onDeleteTrip: noop,
+    onDeleteAllTrips: noop,
     onDownload: noop,
-    onClearPreview: noop,
     onResetAll: noop
   };
 }
@@ -36,6 +38,8 @@ describe("renderPanel", () => {
     const stationName = `<img src=x onerror="alert(1)"> Central`;
     const pointLabel = `<script>alert(2)</script> Crosswalk`;
     const candidateName = `<svg onload="alert(3)"> Candidate`;
+    const tripFileName = `<img src=x onerror="alert(6)">.gpx`;
+    const tripPointLabel = `<img src=x onerror="alert(7)"> Trip point`;
     const failureCode = `<bad_code>`;
     const failureMessage = `<img src=x onerror="alert(4)"> failed`;
     const container = document.createElement("div");
@@ -78,6 +82,32 @@ describe("renderPanel", () => {
           tags: {}
         }
       ],
+      generatedTrips: [
+        {
+          id: `trip"><img src=x>`,
+          pairKey: "origin-point::destination-point",
+          fileName: tripFileName,
+          gpx: "<gpx />",
+          routeMode: "driving",
+          originPoint: {
+            id: "origin-point",
+            lat: 52.521,
+            lon: 13.406,
+            label: tripPointLabel
+          },
+          destinationPoint: {
+            id: "destination-point",
+            lat: 52.522,
+            lon: 13.407,
+            label: "Destination"
+          },
+          walkInCoords: [],
+          metroCoords: [],
+          walkOutCoords: [],
+          drivingCoords: [[13.406, 52.521], [13.407, 52.522]]
+        }
+      ],
+      selectedTripId: `trip"><img src=x>`,
       pointClocks: {},
       report: {
         requestedTrips: 1,
@@ -101,6 +131,8 @@ describe("renderPanel", () => {
     expect(container.querySelector<HTMLInputElement>("[data-station-name]")?.value).toBe(stationName);
     expect(container.textContent).toContain(pointLabel);
     expect(container.textContent).toContain(candidateName);
+    expect(container.textContent).toContain(tripFileName);
+    expect(container.textContent).toContain(tripPointLabel);
     expect(container.textContent).toContain(failureCode);
     expect(container.textContent).toContain(failureMessage);
     expect(container.querySelector<HTMLButtonElement>("[data-point-trip-mode]")?.textContent).toBe("D");
@@ -128,6 +160,8 @@ describe("renderPanel", () => {
       tripCount: 1,
       randomCount: 1,
       nearbyCandidates: [],
+      generatedTrips: [],
+      selectedTripId: null,
       pointClocks: {},
       canDownload: false,
       statusText: "Initial"
@@ -169,6 +203,8 @@ describe("renderPanel", () => {
       tripCount: 1,
       randomCount: 1,
       nearbyCandidates: [],
+      generatedTrips: [],
+      selectedTripId: null,
       pointClocks: {
         "point-1": {
           phase: "debounce",
@@ -200,5 +236,65 @@ describe("renderPanel", () => {
 
     updatePointClocks(container, {});
     expect(updatedRow?.querySelector("[data-point-clock]")).toBeNull();
+  });
+
+  it("renders generated trips and wires select/delete actions", () => {
+    const container = document.createElement("div");
+    const selectedTrips: string[] = [];
+    const deletedTrips: string[] = [];
+    let deleteAllClicked = false;
+    const callbacks: PanelCallbacks = {
+      ...createCallbacks(),
+      onSelectTrip: (tripId) => selectedTrips.push(tripId),
+      onDeleteTrip: (tripId) => deletedTrips.push(tripId),
+      onDeleteAllTrips: () => {
+        deleteAllClicked = true;
+      }
+    };
+    const model: PanelModel = {
+      mode: "idle",
+      busy: false,
+      stations: [],
+      activeStationId: null,
+      selectedPointId: null,
+      selectedOriginStationId: null,
+      selectedDestinationStationId: null,
+      orsApiKey: "",
+      overpassUrl: "https://example.test",
+      tripCount: 1,
+      randomCount: 1,
+      nearbyCandidates: [],
+      generatedTrips: [
+        {
+          id: "trip-1",
+          pairKey: "origin::destination",
+          fileName: "trip-1.gpx",
+          gpx: "<gpx />",
+          routeMode: "metro",
+          originPoint: { id: "origin", lat: 1, lon: 2, label: "Origin point" },
+          destinationPoint: { id: "destination", lat: 3, lon: 4, label: "Destination point" },
+          walkInCoords: [[2, 1]],
+          metroCoords: [[2.5, 1.5]],
+          walkOutCoords: [[4, 3]],
+          drivingCoords: []
+        }
+      ],
+      selectedTripId: "trip-1",
+      pointClocks: {},
+      canDownload: true
+    };
+
+    renderPanel(container, model, callbacks);
+
+    expect(container.querySelector(".trips-table")).not.toBeNull();
+    expect(container.querySelector("tr[data-trip-id='trip-1']")?.className).toContain("is-selected");
+
+    container.querySelector<HTMLElement>("tr[data-trip-id='trip-1']")?.click();
+    container.querySelector<HTMLButtonElement>("[data-trip-delete]")?.click();
+    container.querySelector<HTMLButtonElement>("#deleteAllTrips")?.click();
+
+    expect(selectedTrips).toEqual(["trip-1"]);
+    expect(deletedTrips).toEqual(["trip-1"]);
+    expect(deleteAllClicked).toBe(true);
   });
 });

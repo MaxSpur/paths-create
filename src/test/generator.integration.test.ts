@@ -216,17 +216,42 @@ describe("generateTrips integration", () => {
         ...destinationStation,
         walkPoints: [{ ...destinationStation.walkPoints[0], tripMode: "metro" }]
       },
-      tripCount: 2,
+      tripCount: 1,
       seed: 123
     });
 
-    expect(result.report.generatedTrips).toBe(2);
+    expect(result.report.generatedTrips).toBe(1);
     expect(result.report.failures).toEqual([]);
     expect(result.trips.every((trip) => trip.routeMode === "driving")).toBe(true);
+    expect(result.trips.every((trip) => trip.pairKey === "o1::d1")).toBe(true);
     expect(result.trips.every((trip) => trip.drivingCoords.length === 3)).toBe(true);
     expect(result.trips.every((trip) => trip.metroCoords.length === 0)).toBe(true);
     expect(result.trips.every((trip) => trip.gpx.includes('routeMode="driving"'))).toBe(true);
     expect(result.trips.every((trip) => trip.gpx.includes("<type>driving</type>"))).toBe(true);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not request routes for excluded existing pairs", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(createOrsResponse({ coordinates: [] }));
+
+    const result = await generateTrips({
+      orsApiKey: "key",
+      overpassUrl: "https://overpass.test/interpreter",
+      originStation: {
+        ...originStation,
+        walkPoints: [{ ...originStation.walkPoints[0], tripMode: "driving" }]
+      },
+      destinationStation: {
+        ...destinationStation,
+        walkPoints: [{ ...destinationStation.walkPoints[0], tripMode: "driving" }]
+      },
+      tripCount: 1,
+      seed: 123,
+      excludedPairKeys: ["o1::d1"]
+    });
+
+    expect(result.trips).toEqual([]);
+    expect(result.report.failures[0]?.code).toBe("NO_UNUSED_PAIRS");
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

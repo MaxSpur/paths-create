@@ -29,6 +29,8 @@ export interface GenerateTripsInput {
   destinationStation: StationRecord;
   tripCount: number;
   seed?: number;
+  excludedPairKeys?: Iterable<string>;
+  startingTripNumber?: number;
   maxSnapDistanceM?: number;
   railPaddingM?: number;
   onProgress?: (update: GenerationProgressUpdate) => void;
@@ -169,8 +171,18 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     input.originStation.walkPoints,
     input.destinationStation.walkPoints,
     input.tripCount,
-    input.seed
+    {
+      seed: input.seed,
+      excludedPairKeys: input.excludedPairKeys
+    }
   );
+  if (pairings.pairs.length < input.tripCount) {
+    addFailure(
+      failures,
+      "NO_UNUSED_PAIRS",
+      `Only ${pairings.pairs.length} unused origin/destination pair${pairings.pairs.length === 1 ? "" : "s"} available for this request.`
+    );
+  }
   const drivingPairs = pairings.pairs.filter((pair) => pairUsesDriving(pair));
   const metroPairs = pairings.pairs.filter((pair) => !pairUsesDriving(pair));
   const needsMetro = metroPairs.length > 0;
@@ -326,7 +338,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   for (let index = 0; index < pairings.pairs.length; index += 1) {
     const pair = pairings.pairs[index];
     const useDriving = pairUsesDriving(pair);
-    const tripNumber = trips.length + 1;
+    const tripNumber = (input.startingTripNumber ?? 1) + trips.length;
     const tripId = newId("trip");
     const tripName = `${input.originStation.name} to ${input.destinationStation.name} #${tripNumber}`;
 
@@ -345,6 +357,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       const gpx = buildTripGpx({
         id: tripId,
         name: tripName,
+        pairKey: pair.pairKey,
         routeMode: "driving",
         originStation: input.originStation,
         destinationStation: input.destinationStation,
@@ -358,6 +371,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
 
       trips.push({
         id: tripId,
+        pairKey: pair.pairKey,
         fileName: `${sanitizeFileName(input.originStation.name)}-${sanitizeFileName(input.destinationStation.name)}-${String(tripNumber).padStart(3, "0")}.gpx`,
         gpx,
         routeMode: "driving",
@@ -405,6 +419,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     const gpx = buildTripGpx({
       id: tripId,
       name: tripName,
+      pairKey: pair.pairKey,
       routeMode: "metro",
       originStation: input.originStation,
       destinationStation: input.destinationStation,
@@ -417,6 +432,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
 
     trips.push({
       id: tripId,
+      pairKey: pair.pairKey,
       fileName: `${sanitizeFileName(input.originStation.name)}-${sanitizeFileName(input.destinationStation.name)}-${String(tripNumber).padStart(3, "0")}.gpx`,
       gpx,
       routeMode: "metro",

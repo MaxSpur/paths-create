@@ -3,6 +3,7 @@ import { reverseGeocode, searchLocations } from "../lib/geocode";
 import { generateTrips } from "../lib/generator";
 import { newId } from "../lib/ids";
 import { fetchNearbyStations } from "../lib/overpassClient";
+import { pairKey } from "../lib/pairing";
 import { samplePointsWithinRadius } from "../lib/sampling";
 import { clampStationRadiusM, DEFAULT_STATION_RADIUS_M } from "../lib/stationRadius";
 import { createStateStore } from "../lib/stateStore";
@@ -11,11 +12,6 @@ import type { GeneratedTrip, GenerationReport, LatLon, StationCandidate, Station
 import { resolveMapClickAction, type EditMode } from "./interaction";
 import { MapView } from "./map";
 import { renderPanel, updatePointClocks, type PointClockView } from "./panel";
-
-interface GenerationArtifacts {
-  report: GenerationReport;
-  files: Array<{ fileName: string; content: string }>;
-}
 
 interface UiGenerationProgress {
   phase: string;
@@ -52,8 +48,10 @@ export function createApp(root: HTMLElement): void {
   let busy = false;
   let statusText = "";
   let nearbyCandidates: StationCandidate[] = [];
-  let previewTrips: GeneratedTrip[] = [];
-  let generationArtifacts: GenerationArtifacts | null = null;
+  let generatedTrips: GeneratedTrip[] = [];
+  let selectedTripId: string | null = null;
+  let lastGenerationReport: GenerationReport | null = null;
+  let nextGeneratedTripNumber = 1;
   let generationProgress: UiGenerationProgress | null = null;
   let scrollSelectedIntoView = false;
   const pointAddressTimers = new Map<string, number>();
@@ -576,6 +574,10 @@ export function createApp(root: HTMLElement): void {
     });
   };
 
+  const generatedPairKeys = (): Set<string> => {
+    return new Set(generatedTrips.map((trip) => trip.pairKey || pairKey(trip.originPoint.id, trip.destinationPoint.id)));
+  };
+
   const deleteSelectedPoint = (): boolean => {
     const state = store.getState();
     const stationId = state.ui.activeStationId;
@@ -679,6 +681,7 @@ export function createApp(root: HTMLElement): void {
 
     busy = true;
     statusText = "Generating trips...";
+    const excludedPairKeys = generatedPairKeys();
     generationProgress = {
       phase: "setup",
       message: "Starting generation",
@@ -696,17 +699,19 @@ export function createApp(root: HTMLElement): void {
         destinationStation: destination,
         tripCount: state.generation.tripCount,
         seed: state.generation.seed,
+        excludedPairKeys,
+        startingTripNumber: nextGeneratedTripNumber,
         onProgress: (update) => {
           applyGenerationProgress(update);
           render();
         }
       });
 
-      previewTrips = result.trips;
-      generationArtifacts = {
-        report: result.report,
-        files: result.trips.map((trip) => ({ fileName: trip.fileName, content: trip.gpx }))
-      };
+      const knownPairKeys = generatedPairKeys();
+      const newTrips = result.trips.filter((trip) => !knownPairKeys.has(trip.pairKey));
+      generatedTrips = [...generatedTrips, ...newTrips];
+      nextGeneratedTripNumber += newTrips.length;
+      lastGenerationReport = result.report;
       generationProgress = {
         phase: "done",
         message: "Generation complete",
@@ -714,10 +719,8 @@ export function createApp(root: HTMLElement): void {
         total: 1,
         percent: 100
       };
-      statusText = `Generation complete: ${result.report.generatedTrips}/${result.report.requestedTrips}.`;
+      statusText = `Generation complete: added ${newTrips.length} new trip${newTrips.length === 1 ? "" : "s"} (${generatedTrips.length} total).`;
     } catch (error) {
-      generationArtifacts = null;
-      previewTrips = [];
       generationProgress = {
         phase: "done",
         message: "Generation failed",
@@ -733,22 +736,52 @@ export function createApp(root: HTMLElement): void {
   };
 
   const download = async () => {
-    if (!generationArtifacts || generationArtifacts.files.length === 0) {
+    if (generatedTrips.length === 0) {
       statusText = "No generated GPX files available for download.";
       render();
       return;
     }
 
-    await downloadZip(generationArtifacts.files, `generated-trips-${new Date().toISOString().slice(0, 19)}.zip`);
-    statusText = `Downloaded ${generationArtifacts.files.length} GPX files.`;
+    const files = generatedTrips.map((trip) => ({ fileName: trip.fileName, content: trip.gpx }));
+    await downloadZip(files, `generated-trips-${new Date().toISOString().slice(0, 19)}.zip`);
+    statusText = `Downloaded ${files.length} GPX files.`;
     render();
   };
 
-  const clearPreview = () => {
-    previewTrips = [];
-    generationArtifacts = null;
+  const selectGeneratedTrip = (tripId: string) => {
+    const trip = generatedTrips.find((item) => item.id === tripId);
+    if (!trip) {
+      selectedTripId = null;
+      statusText = "Generated trip not found.";
+      render();
+      return;
+    }
+
+    selectedTripId = selectedTripId === tripId ? null : tripId;
+    if (selectedTripId) {
+      map.focusOnTrip(trip);
+    }
+    statusText = selectedTripId ? "Generated trip selected." : "Generated trip deselected.";
+    render();
+  };
+
+  const deleteGeneratedTrip = (tripId: string) => {
+    const beforeCount = generatedTrips.length;
+    generatedTrips = generatedTrips.filter((trip) => trip.id !== tripId);
+    if (selectedTripId === tripId) {
+      selectedTripId = null;
+    }
+    statusText = generatedTrips.length < beforeCount ? "Generated trip deleted." : "Generated trip not found.";
+    render();
+  };
+
+  const deleteAllGeneratedTrips = () => {
+    generatedTrips = [];
+    selectedTripId = null;
+    lastGenerationReport = null;
     generationProgress = null;
-    statusText = "Preview cleared.";
+    nextGeneratedTripNumber = 1;
+    statusText = "Generated trip list cleared.";
     render();
   };
 
@@ -765,8 +798,10 @@ export function createApp(root: HTMLElement): void {
     store.reset();
     mode = "idle";
     nearbyCandidates = [];
-    previewTrips = [];
-    generationArtifacts = null;
+    generatedTrips = [];
+    selectedTripId = null;
+    lastGenerationReport = null;
+    nextGeneratedTripNumber = 1;
     generationProgress = null;
     statusText = "All saved data reset.";
     render();
@@ -781,9 +816,10 @@ export function createApp(root: HTMLElement): void {
       stations: state.stations,
       activeStationId: state.ui.activeStationId,
       selectedPointId: state.ui.selectedPointId,
+      selectedTripId,
       selectedOriginStationId: state.selectedOriginStationId,
       selectedDestinationStationId: state.selectedDestinationStationId,
-      previewTrips
+      previewTrips: generatedTrips
     });
 
     renderPanel(
@@ -802,11 +838,13 @@ export function createApp(root: HTMLElement): void {
         seed: state.generation.seed,
         randomCount: state.randomPointDefaults.count,
         nearbyCandidates,
+        generatedTrips,
+        selectedTripId,
         pointClocks,
         scrollSelectedIntoView,
         generationProgress: generationProgress ?? undefined,
-        report: generationArtifacts?.report,
-        canDownload: Boolean(generationArtifacts && generationArtifacts.files.length > 0),
+        report: lastGenerationReport ?? undefined,
+        canDownload: generatedTrips.length > 0,
         statusText
       },
       {
@@ -903,8 +941,10 @@ export function createApp(root: HTMLElement): void {
           });
         },
         onGenerate: runGeneration,
+        onSelectTrip: selectGeneratedTrip,
+        onDeleteTrip: deleteGeneratedTrip,
+        onDeleteAllTrips: deleteAllGeneratedTrips,
         onDownload: download,
-        onClearPreview: clearPreview,
         onResetAll: resetAll
       }
     );

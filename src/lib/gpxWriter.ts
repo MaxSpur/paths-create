@@ -46,6 +46,7 @@ export interface GpxPointInput {
 export interface GpxTripInput {
   id: string;
   name: string;
+  pairKey?: string;
   routeMode?: TripRouteMode;
   originStation: GpxStationInput;
   destinationStation: GpxStationInput;
@@ -340,6 +341,7 @@ export function buildTripGpx(input: GpxTripInput): string {
     <extensions>
       <odc:trip${xmlAttrs({
         id: input.id,
+        pairKey: input.pairKey,
         routeMode,
         schemaVersion: 1,
         segmentCount: segments.length

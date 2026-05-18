@@ -1,4 +1,4 @@
-import type { GenerationReport, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import type { GeneratedTrip, GenerationReport, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import {
   formatStationRadius,
   STATION_RADIUS_SLIDER_STEPS,
@@ -27,6 +27,8 @@ export interface PanelModel {
   seed?: number;
   randomCount: number;
   nearbyCandidates: StationCandidate[];
+  generatedTrips: GeneratedTrip[];
+  selectedTripId: string | null;
   pointClocks: Record<string, PointClockView>;
   scrollSelectedIntoView?: boolean;
   generationProgress?: {
@@ -61,8 +63,10 @@ export interface PanelCallbacks {
   onTripCountChange: (tripCount: number) => void;
   onSeedChange: (seed?: number) => void;
   onGenerate: () => void;
+  onSelectTrip: (tripId: string) => void;
+  onDeleteTrip: (tripId: string) => void;
+  onDeleteAllTrips: () => void;
   onDownload: () => void;
-  onClearPreview: () => void;
   onResetAll: () => void;
 }
 
@@ -105,6 +109,29 @@ function pointClockHtml(pointClock: PointClockView): string {
   ).toFixed(3)}"></span>`;
 }
 
+function tripLabel(trip: GeneratedTrip): string {
+  const origin = trip.originPoint.label?.trim() || trip.originPoint.id;
+  const destination = trip.destinationPoint.label?.trim() || trip.destinationPoint.id;
+  return `${origin} -> ${destination}`;
+}
+
+function tripRow(trip: GeneratedTrip, selectedTripId: string | null): string {
+  const isSelected = trip.id === selectedTripId;
+  const modeLabel = trip.routeMode === "driving" ? "Driving" : "Metro";
+  return `<tr data-trip-id="${escapeHtml(trip.id)}" class="${isSelected ? "is-selected" : ""}">
+    <td>
+      <span class="trip-mode ${trip.routeMode}">${modeLabel}</span>
+    </td>
+    <td>
+      <span class="trip-label">${escapeHtml(tripLabel(trip))}</span>
+      <span class="trip-file">${escapeHtml(trip.fileName)}</span>
+    </td>
+    <td class="trip-actions">
+      <button data-trip-delete type="button">Delete</button>
+    </td>
+  </tr>`;
+}
+
 function applyPointClockElementState(element: HTMLElement, pointClock: PointClockView): void {
   element.className = `point-clock-dial ${pointClock.phase}`;
   element.title = pointClock.title;
@@ -139,12 +166,14 @@ export function updatePointClocks(container: HTMLElement, pointClocks: Record<st
 interface PanelScrollState {
   panelScrollTop: number;
   stationListScrollTop: number | null;
+  generatedTripListScrollTop: number | null;
 }
 
 function capturePanelScroll(container: HTMLElement): PanelScrollState {
   return {
     panelScrollTop: container.scrollTop,
-    stationListScrollTop: container.querySelector<HTMLElement>(".station-list")?.scrollTop ?? null
+    stationListScrollTop: container.querySelector<HTMLElement>(".station-list")?.scrollTop ?? null,
+    generatedTripListScrollTop: container.querySelector<HTMLElement>(".generated-trip-list")?.scrollTop ?? null
   };
 }
 
@@ -154,6 +183,12 @@ function restorePanelScroll(container: HTMLElement, scrollState: PanelScrollStat
     const stationList = container.querySelector<HTMLElement>(".station-list");
     if (stationList) {
       stationList.scrollTop = scrollState.stationListScrollTop;
+    }
+  }
+  if (scrollState.generatedTripListScrollTop !== null) {
+    const generatedTripList = container.querySelector<HTMLElement>(".generated-trip-list");
+    if (generatedTripList) {
+      generatedTripList.scrollTop = scrollState.generatedTripListScrollTop;
     }
   }
 }
@@ -320,10 +355,29 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
       </label>
       <div class="btn-row">
         <button id="generate" type="button" ${model.busy ? "disabled" : ""}>${model.busy ? "Generating..." : "Generate"}</button>
-        <button id="clearPreview" type="button">Clear preview</button>
-        <button id="download" type="button" ${model.canDownload ? "" : "disabled"}>Download GPX ZIP</button>
       </div>
       ${progressHtml(model)}
+    </section>
+
+    <section>
+      <h2>Generated Trips</h2>
+      <div class="generated-trip-summary">${model.generatedTrips.length} trip${model.generatedTrips.length === 1 ? "" : "s"} in list</div>
+      <div class="btn-row">
+        <button id="download" type="button" ${model.canDownload ? "" : "disabled"}>Download GPX ZIP</button>
+        <button id="deleteAllTrips" type="button" ${model.generatedTrips.length > 0 ? "" : "disabled"}>Delete all</button>
+      </div>
+      ${
+        model.generatedTrips.length > 0
+          ? `<div class="generated-trip-list">
+              <table class="trips-table">
+                <thead><tr><th>Mode</th><th>Trip</th><th>Actions</th></tr></thead>
+                <tbody>
+                  ${model.generatedTrips.map((trip) => tripRow(trip, model.selectedTripId)).join("")}
+                </tbody>
+              </table>
+            </div>`
+          : `<div class="empty-list-note">Generated trips will be added here without replacing previous successful trips.</div>`
+      }
     </section>
 
     <section>
@@ -433,7 +487,17 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
 
   container.querySelector<HTMLButtonElement>("#generate")?.addEventListener("click", callbacks.onGenerate);
   container.querySelector<HTMLButtonElement>("#download")?.addEventListener("click", callbacks.onDownload);
-  container.querySelector<HTMLButtonElement>("#clearPreview")?.addEventListener("click", callbacks.onClearPreview);
+  container.querySelector<HTMLButtonElement>("#deleteAllTrips")?.addEventListener("click", callbacks.onDeleteAllTrips);
+  for (const row of Array.from(container.querySelectorAll<HTMLElement>("tr[data-trip-id]"))) {
+    const tripId = row.dataset.tripId;
+    if (!tripId) continue;
+
+    row.addEventListener("click", () => callbacks.onSelectTrip(tripId));
+    row.querySelector<HTMLButtonElement>("[data-trip-delete]")?.addEventListener("click", (event) => {
+      event.stopPropagation();
+      callbacks.onDeleteTrip(tripId);
+    });
+  }
   container.querySelector<HTMLButtonElement>("#resetAll")?.addEventListener("click", callbacks.onResetAll);
 
   if (model.scrollSelectedIntoView && model.selectedPointId) {

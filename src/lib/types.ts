@@ -71,6 +71,7 @@ export interface PairingResult {
 
 export interface GeneratedTrip {
   id: string;
+  pairKey: string;
   fileName: string;
   gpx: string;
   routeMode: TripRouteMode;

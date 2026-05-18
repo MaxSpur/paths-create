@@ -31,4 +31,22 @@ describe("generateRoundRobinPairs", () => {
     const second = generateRoundRobinPairs(originPool, destinationPool, 8, 99).pairs.map((p) => p.pairKey);
     expect(second).toEqual(first);
   });
+
+  it("stops at available unique pairs instead of reusing pairs", () => {
+    const comboCount = originPool.length * destinationPool.length;
+    const result = generateRoundRobinPairs(originPool, destinationPool, comboCount + 5, 42);
+    expect(result.pairs).toHaveLength(comboCount);
+    expect(result.maxPairReuse).toBe(1);
+  });
+
+  it("skips excluded pair keys", () => {
+    const result = generateRoundRobinPairs(originPool, destinationPool, 6, {
+      seed: 42,
+      excludedPairKeys: ["o1::d1", "o2::d2"]
+    });
+
+    expect(result.pairs.map((pair) => pair.pairKey)).not.toContain("o1::d1");
+    expect(result.pairs.map((pair) => pair.pairKey)).not.toContain("o2::d2");
+    expect(result.pairs).toHaveLength(4);
+  });
 });
