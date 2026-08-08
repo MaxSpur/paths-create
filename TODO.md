@@ -1,24 +1,21 @@
 # TODO
 
-## Current Backlog
+Keep this as the active queue. Completed chronology belongs in Git history, not here.
 
-- [ ] Add Overpass mirror presets and endpoint fallback sequencing.
-- [ ] Add station import/export JSON for sharing curated station and point pools.
-- [ ] Decide whether generated preview trails should be cleared on regeneration or preserved as run history layers.
-- [ ] Improve OSM station discovery filters so broad railway station results are easier to curate.
-- [ ] Add lightweight app-level render tests if more `app.ts` render scheduling is changed.
+## Reliability And External Services
 
-## Recently Done
+- [ ] Add Overpass mirror presets and bounded fallback sequencing, with visible endpoint/failure reporting.
+- [ ] Cancel or coalesce queued reverse-geocode work when a point is moved again or deleted; explicit location search must remain prioritized without exceeding the shared Nominatim rate limit.
+- [ ] Add a bounded session route cache keyed by coordinates and routing profile so later generation batches can reuse unchanged rail setup and walking legs.
 
-- [x] Split useful `CODEX_MEMO.md` facts into durable project docs.
-- [x] Added a local project `AGENTS.md`.
-- [x] Hardened panel rendering by centralizing HTML escaping.
-- [x] Replaced rail shortest-path unvisited scans with a min-priority queue.
-- [x] Added a top-right map location search control.
-- [x] Added ranked location search candidates biased by the current visible map bounds.
-- [x] Fixed point address clock updates so they no longer reset station-list scroll or active radius slider interactions.
-- [x] Added per-point `M`/`D` route-mode toggles and direct driving trip generation.
-- [x] Encoded per-point metro/driving mode on map markers with distinct colors.
-- [x] Enriched GPX export with explicit transport tracks, segment metadata, and structured point address extensions.
-- [x] Added a generated-trip list with select/focus, per-trip delete, delete-all, and append-only unique-pair generation.
-- [x] Refined `README.md` usage instructions around the actual panel/map workflow.
+## Data And Workflow
+
+- [ ] Add station-library JSON import/export with schema validation and a documented compatibility contract.
+- [ ] Decide whether generated preview trails remain append-only run history or can be cleared automatically on regeneration.
+- [ ] Improve OSM station discovery filters so broad railway results are easier to curate.
+
+## Verification
+
+- [ ] Add an app-level render lifecycle test covering store notifications, scheduled renders, and targeted progress patches.
+- [ ] Add a deterministic large-preview benchmark that verifies Leaflet layer counts in addition to pure preview-segment counts.
+- [ ] Keep the in-app-browser smoke fixture current: search Vincennes, select the French result, search Géodata Paris, select the Champs-sur-Marne result, and verify narrow-screen controls.

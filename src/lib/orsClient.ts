@@ -38,6 +38,23 @@ export interface OrsClientOptions {
 
 const MAX_ELEVATION_VERTICES = 2000;
 
+class OrsHttpError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "OrsHttpError";
+  }
+}
+
+class OrsGeometryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OrsGeometryError";
+  }
+}
+
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -210,11 +227,14 @@ export class OrsClient {
             await sleep(delay);
             continue;
           }
-          throw new Error(`ORS ${response.status}: ${text || response.statusText}`);
+          throw new OrsHttpError(response.status, `ORS ${response.status}: ${text || response.statusText}`);
         }
 
         return await response.json();
       } catch (error) {
+        if (error instanceof OrsHttpError) {
+          throw error;
+        }
         if (attempt >= this.maxRetries) {
           throw error instanceof Error ? error : new Error(String(error));
         }
@@ -230,7 +250,7 @@ export class OrsClient {
     const coordinates = extractCoordinates(data);
 
     if (!coordinates || coordinates.length < 2) {
-      throw new Error(emptyResponseMessage);
+      throw new OrsGeometryError(emptyResponseMessage);
     }
 
     return coordinates;
@@ -245,7 +265,7 @@ export class OrsClient {
     const alternatives = extractCoordinateAlternatives(data);
 
     if (alternatives.length === 0) {
-      throw new Error(emptyResponseMessage);
+      throw new OrsGeometryError(emptyResponseMessage);
     }
 
     return alternatives;
@@ -300,7 +320,13 @@ export class OrsClient {
         },
         "ORS response did not include driving route geometry."
       );
-    } catch {
+    } catch (error) {
+      const alternativesUnsupported =
+        error instanceof OrsGeometryError ||
+        (error instanceof OrsHttpError && [400, 404, 422].includes(error.status));
+      if (!alternativesUnsupported) {
+        throw error;
+      }
       return [await this.getDrivingRoute(from, to)];
     }
   }

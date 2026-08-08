@@ -1,5 +1,5 @@
 import { createStateStore, createDefaultState, loadState, STORAGE_KEY } from "../lib/stateStore";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 describe("stateStore", () => {
   it("persists and rehydrates state", () => {
@@ -112,5 +112,20 @@ describe("stateStore", () => {
     expect(loaded.selectedOriginStationId).toBeNull();
     expect(loaded.selectedDestinationStationId).toBeNull();
     expect(loaded.ui.activeStationId).toBeNull();
+  });
+
+  it("can persist map-only state without notifying UI subscribers", () => {
+    const store = createStateStore(createDefaultState());
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    store.update((draft) => {
+      draft.ui.mapCenter = { lat: 48.847, lon: 2.439 };
+      draft.ui.mapZoom = 15;
+      return draft;
+    }, { notify: false });
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null").ui.mapZoom).toBe(15);
   });
 });

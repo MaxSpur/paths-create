@@ -130,48 +130,49 @@ function endpointToXml(endpoint: SegmentEndpoint, tagName: "odc:from" | "odc:to"
   })} />`;
 }
 
-function segmentMetadataToXml(segment: TripSegment, index: number): string {
+function segmentMetadataToXml(segment: TripSegment, index: number, distanceM: string): string {
   return `<odc:segment${xmlAttrs({
     index,
     role: segment.role,
     mode: segment.mode,
     pointCount: segment.coords.length,
-    distanceM: formatDistance(segmentDistanceM(segment.coords))
+    distanceM
   })}>
         ${endpointToXml(segment.from, "odc:from")}
         ${endpointToXml(segment.to, "odc:to")}
       </odc:segment>`;
 }
 
-function segmentRefToXml(segment: TripSegment, index: number): string {
+function segmentRefToXml(segment: TripSegment, index: number, distanceM: string): string {
   return `<odc:segmentRef${xmlAttrs({
     index,
     role: segment.role,
     mode: segment.mode,
     pointCount: segment.coords.length,
-    distanceM: formatDistance(segmentDistanceM(segment.coords))
+    distanceM
   })} />`;
 }
 
-function segmentToXml(segment: TripSegment, index: number): string {
+function segmentToXml(segment: TripSegment, index: number, distanceM: string): string {
   const points = segment.coords.map((coord) => trackPointToXml(coord)).join("\n      ");
   return `<trkseg>
       ${points}
       <extensions>
-        ${segmentRefToXml(segment, index)}
+        ${segmentRefToXml(segment, index, distanceM)}
       </extensions>
     </trkseg>`;
 }
 
 function trackToXml(segment: TripSegment, index: number): string {
+  const distanceM = formatDistance(segmentDistanceM(segment.coords));
   return `<trk>
     <name>${escapeXml(segment.name)}</name>
     <desc>${escapeXml(segment.description)}</desc>
     <type>${escapeXml(segment.mode)}</type>
     <extensions>
-      ${segmentMetadataToXml(segment, index)}
+      ${segmentMetadataToXml(segment, index, distanceM)}
     </extensions>
-    ${segmentToXml(segment, index)}
+    ${segmentToXml(segment, index, distanceM)}
   </trk>`;
 }
 

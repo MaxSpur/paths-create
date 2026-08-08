@@ -4,6 +4,29 @@ import type { LatLon, LonLat, OverpassResponse } from "./types";
 export interface RailGraph {
   nodes: Map<number, LatLon>;
   edges: Map<number, Array<{ to: number; weight: number }>>;
+  spatialIndex?: Map<string, number[]>;
+  spatialCellSizeDeg?: number;
+}
+
+const SPATIAL_CELL_SIZE_DEG = 0.01;
+const METERS_PER_LATITUDE_DEGREE = 111_320;
+
+function spatialCellKey(lat: number, lon: number, cellSizeDeg: number): string {
+  return `${Math.floor((lat + 90) / cellSizeDeg)}:${Math.floor((lon + 180) / cellSizeDeg)}`;
+}
+
+function buildSpatialIndex(nodes: Map<number, LatLon>): Map<string, number[]> {
+  const index = new Map<string, number[]>();
+  for (const [nodeId, point] of nodes) {
+    const key = spatialCellKey(point.lat, point.lon, SPATIAL_CELL_SIZE_DEG);
+    const cell = index.get(key);
+    if (cell) {
+      cell.push(nodeId);
+    } else {
+      index.set(key, [nodeId]);
+    }
+  }
+  return index;
 }
 
 class MinDistanceQueue {
@@ -105,7 +128,12 @@ export function buildRailGraph(overpassData: OverpassResponse): RailGraph {
     }
   }
 
-  return { nodes, edges };
+  return {
+    nodes,
+    edges,
+    spatialIndex: buildSpatialIndex(nodes),
+    spatialCellSizeDeg: SPATIAL_CELL_SIZE_DEG
+  };
 }
 
 export function snapToNearestNode(
@@ -115,8 +143,32 @@ export function snapToNearestNode(
 ): number | null {
   let bestNode: number | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
+  let candidates: Iterable<[number, LatLon]> = graph.nodes;
 
-  for (const [nodeId, nodePoint] of graph.nodes.entries()) {
+  if (graph.spatialIndex && graph.spatialCellSizeDeg) {
+    const latitudeRadius = maxDistanceM / METERS_PER_LATITUDE_DEGREE;
+    const longitudeScale = Math.max(0.05, Math.cos((point.lat * Math.PI) / 180));
+    const longitudeRadius = maxDistanceM / (METERS_PER_LATITUDE_DEGREE * longitudeScale);
+    const minLatCell = Math.floor((point.lat - latitudeRadius + 90) / graph.spatialCellSizeDeg);
+    const maxLatCell = Math.floor((point.lat + latitudeRadius + 90) / graph.spatialCellSizeDeg);
+    const minLonCell = Math.floor((point.lon - longitudeRadius + 180) / graph.spatialCellSizeDeg);
+    const maxLonCell = Math.floor((point.lon + longitudeRadius + 180) / graph.spatialCellSizeDeg);
+    const candidateNodes: Array<[number, LatLon]> = [];
+
+    for (let latCell = minLatCell; latCell <= maxLatCell; latCell += 1) {
+      for (let lonCell = minLonCell; lonCell <= maxLonCell; lonCell += 1) {
+        const nodeIds = graph.spatialIndex.get(`${latCell}:${lonCell}`) ?? [];
+        for (const nodeId of nodeIds) {
+          const nodePoint = graph.nodes.get(nodeId);
+          if (nodePoint) candidateNodes.push([nodeId, nodePoint]);
+        }
+      }
+    }
+
+    candidates = candidateNodes;
+  }
+
+  for (const [nodeId, nodePoint] of candidates) {
     const d = haversineDistanceM(point, nodePoint);
     if (d < bestDistance) {
       bestDistance = d;
@@ -132,15 +184,15 @@ export function snapToNearestNode(
 }
 
 export function shortestPath(graph: RailGraph, startNode: number, endNode: number): number[] | null {
+  if (!graph.nodes.has(startNode) || !graph.nodes.has(endNode)) {
+    return null;
+  }
+
   const distances = new Map<number, number>();
   const previous = new Map<number, number | null>();
   const visited = new Set<number>();
   const queue = new MinDistanceQueue();
 
-  for (const node of graph.nodes.keys()) {
-    distances.set(node, Number.POSITIVE_INFINITY);
-    previous.set(node, null);
-  }
   distances.set(startNode, 0);
   previous.set(startNode, null);
   queue.push(startNode, 0);
@@ -182,9 +234,11 @@ export function shortestPath(graph: RailGraph, startNode: number, endNode: numbe
   const path: number[] = [];
   let current: number | null = endNode;
   while (current !== null) {
-    path.unshift(current);
+    path.push(current);
     current = previous.get(current) ?? null;
   }
+
+  path.reverse();
 
   if (path[0] !== startNode) {
     return null;

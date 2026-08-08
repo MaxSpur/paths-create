@@ -13,6 +13,8 @@ Runtime entry: `src/main.ts` mounts `createApp` from `src/ui/app.ts`.
 - `src/ui/panel.ts`: sidebar HTML rendering and DOM event binding.
 - `src/ui/html.ts`: shared HTML escaping for dynamic panel template content.
 - `src/ui/interaction.ts`: pure map-click intent resolution for station activation, point add/move/deselect, and station creation.
+- `src/ui/previewSegments.ts`: pure preview-segment deduplication before Leaflet rendering.
+- `src/ui/renderScheduler.ts`: microtask coalescing for synchronous UI invalidations.
 - `src/lib/stateStore.ts`: state creation, localStorage persistence, and normalization.
 - `src/lib/generator.ts`: trip generation pipeline.
 - `src/lib/orsClient.ts`: ORS walking routes, retries, and elevation draping.
@@ -81,11 +83,28 @@ Point-clock tick updates patch existing clock DOM through `updatePointClocks`; d
 
 Public Nominatim does not support client-side autocomplete. Keep search user-triggered unless the project switches to a provider or self-hosted service that explicitly supports autocomplete.
 
+Forward searches and reverse point lookups share one rate limiter to respect the public service. Explicit searches enter ahead of queued background lookups, and recent identical searches use a bounded five-minute cache. They never bypass the single-request concurrency limit.
+
+## Rendering And Performance
+
+- Synchronous render requests are coalesced into one microtask. Store subscriptions may still request a render, but callers do not cause duplicate immediate rebuilds.
+- Generation progress patches the existing progress DOM. It does not rebuild the panel or Leaflet layers for each generated trip.
+- Map layers have independent change keys. Station, active-point, and preview layers rebuild only when their own model changes.
+- Preview geometry is deduplicated by shared coordinate-array identity. The selected trip is drawn once more as a highlighted overlay.
+- Built rail graphs include a spatial lookup for station snapping. Shortest-path state is allocated lazily, and path reconstruction is linear.
+- JSZip is loaded only when the user downloads a ZIP, keeping it out of the initial JavaScript payload.
+
+Use `npm run benchmark` for deterministic CPU/DOM measurements and `npm run bundle:check` for the initial-payload budget. Treat live ORS, Overpass, tile, and Nominatim timings as service observations, not app CPU benchmarks. See `PERFORMANCE.md`.
+
 ## Build And Deploy
 
 - Vite base path is `./` so built assets work under a GitHub Pages project path.
+- Local development binds only to `127.0.0.1:5198`; preview uses `127.0.0.1:4198`. Both use `strictPort` so a collision cannot silently change the localStorage origin.
+- Node 24 LTS is pinned in `.node-version`; package metadata also permits the currently tested Node 26 line.
+- `npm run check` runs tests, the TypeScript/Vite build, and the initial-bundle budget.
 - GitHub Pages deployment is configured in `.github/workflows/deploy.yml`.
-- Deployment builds `dist/` with `npm ci` and `npm run build`.
+- Pull requests run `.github/workflows/check.yml`. Pushes to `master` run the same gate before uploading `dist/` and deploying Pages.
+- Pages write and identity-token permissions are limited to the deploy job.
 
 ## Known Constraints
 
@@ -93,3 +112,4 @@ Public Nominatim does not support client-side autocomplete. Keep search user-tri
 - OSM station discovery is heuristic and can include non-metro rail stations.
 - The rail segment is geometry-based only; there is no GTFS or timetable integration.
 - API keys and curated data are stored locally in the user's browser.
+- Local data is origin-scoped. A different host or port appears as a separate empty app state.

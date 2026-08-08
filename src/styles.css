@@ -572,9 +572,11 @@ body,
   min-width: 0;
   color: #0f172a;
   font-size: 0.76rem;
+  display: -webkit-box;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 .map-location-search-result-bucket {
@@ -605,5 +607,13 @@ body,
 
   .panel {
     max-height: 56vh;
+  }
+}
+
+@media (max-width: 480px) {
+  .map-location-search {
+    right: 10px;
+    left: 52px;
+    width: auto;
   }
 }

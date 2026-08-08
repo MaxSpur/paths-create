@@ -11,7 +11,8 @@ import type { GenerationProgressUpdate } from "../lib/generator";
 import type { GeneratedTrip, GenerationReport, LatLon, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import { resolveMapClickAction, type EditMode } from "./interaction";
 import { MapView } from "./map";
-import { renderPanel, updatePointClocks, type PointClockView } from "./panel";
+import { renderPanel, updateGenerationProgress, updatePointClocks, type PointClockView } from "./panel";
+import { createRenderScheduler } from "./renderScheduler";
 
 interface UiGenerationProgress {
   phase: string;
@@ -299,31 +300,13 @@ export function createApp(root: HTMLElement): void {
           draft.ui.mapCenter = point;
           draft.ui.mapZoom = zoom;
           return draft;
-        });
+        }, { notify: false });
       },
       onLocationSearch: async (query, bounds) => {
-        statusText = `Searching for ${query}...`;
-        render();
-
-        try {
-          const results = await searchLocations(query, {
-            limit: 8,
-            viewBox: bounds
-          });
-          if (results.length === 0) {
-            statusText = `No location found for ${query}.`;
-            render();
-            return [];
-          }
-
-          statusText = `Found ${results.length} location candidates for ${query}.`;
-          render();
-          return results;
-        } catch (error) {
-          statusText = error instanceof Error ? error.message : String(error);
-          render();
-          throw error;
-        }
+        return searchLocations(query, {
+          limit: 8,
+          viewBox: bounds
+        });
       }
     }
   );
@@ -703,7 +686,9 @@ export function createApp(root: HTMLElement): void {
         startingTripNumber: nextGeneratedTripNumber,
         onProgress: (update) => {
           applyGenerationProgress(update);
-          render();
+          if (generationProgress && !updateGenerationProgress(panelElement, generationProgress)) {
+            render();
+          }
         }
       });
 
@@ -807,7 +792,7 @@ export function createApp(root: HTMLElement): void {
     render();
   };
 
-  const render = () => {
+  const renderNow = () => {
     const state = store.getState();
     const activeStation = state.stations.find((item) => item.id === state.ui.activeStationId);
     const pointClocks = buildPointClockView(activeStation?.walkPoints.map((point) => point.id) ?? []);
@@ -951,6 +936,8 @@ export function createApp(root: HTMLElement): void {
     scrollSelectedIntoView = false;
   };
 
+  const render = createRenderScheduler(renderNow);
+
   requestUiRefresh = () => {
     const state = store.getState();
     const activeStation = state.stations.find((item) => item.id === state.ui.activeStationId);
@@ -984,5 +971,5 @@ export function createApp(root: HTMLElement): void {
     render();
   });
 
-  render();
+  renderNow();
 }

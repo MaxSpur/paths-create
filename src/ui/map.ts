@@ -2,6 +2,7 @@ import L from "leaflet";
 import type { LocationSearchBounds, LocationSearchResult } from "../lib/geocode";
 import type { GeneratedTrip, LatLon, LonLat, StationRecord } from "../lib/types";
 import { rankLocationSearchResults, type RankedLocationSearchResult } from "./locationSearch";
+import { collectPreviewSegments, type PreviewSegment } from "./previewSegments";
 
 export interface MapCallbacks {
   onMapClick: (point: LatLon) => void;
@@ -45,6 +46,35 @@ function tripCoordinates(trip: GeneratedTrip): LonLat[] {
     : [...trip.walkInCoords, ...trip.metroCoords, ...trip.walkOutCoords];
 }
 
+function stationRenderKey(model: MapRenderModel): string {
+  return JSON.stringify([
+    model.activeStationId,
+    model.selectedOriginStationId,
+    model.selectedDestinationStationId,
+    model.stations.map((station) => [
+      station.id,
+      station.name,
+      station.lat,
+      station.lon,
+      station.radiusM
+    ])
+  ]);
+}
+
+function pointRenderKey(model: MapRenderModel, activeStation?: StationRecord): string {
+  return JSON.stringify([
+    model.activeStationId,
+    model.selectedPointId,
+    activeStation?.walkPoints.map((point) => [
+      point.id,
+      point.lat,
+      point.lon,
+      point.label,
+      point.tripMode
+    ]) ?? []
+  ]);
+}
+
 export class MapView {
   private readonly map: L.Map;
 
@@ -57,6 +87,14 @@ export class MapView {
   private readonly circleLayer: L.LayerGroup;
 
   private readonly callbacks: MapCallbacks;
+
+  private lastStationRenderKey = "";
+
+  private lastPointRenderKey = "";
+
+  private lastPreviewTrips: GeneratedTrip[] | null = null;
+
+  private lastSelectedTripId: string | null = null;
 
   constructor(container: HTMLElement, initialCenter: LatLon, initialZoom: number, callbacks: MapCallbacks) {
     this.callbacks = callbacks;
@@ -179,8 +217,15 @@ export class MapView {
     const status = form.querySelector<HTMLElement>(".map-location-search-status");
     const resultsList = document.createElement("div");
     resultsList.className = "map-location-search-results";
+    resultsList.id = "mapLocationSearchResults";
+    resultsList.setAttribute("role", "region");
+    resultsList.setAttribute("aria-label", "Location search results");
     resultsList.hidden = true;
     form.append(resultsList);
+
+    input?.setAttribute("aria-controls", resultsList.id);
+    input?.setAttribute("aria-expanded", "false");
+    let requestSequence = 0;
 
     L.DomEvent.disableClickPropagation(form);
     L.DomEvent.disableScrollPropagation(form);
@@ -199,13 +244,14 @@ export class MapView {
       }
 
       button.disabled = true;
-      input.disabled = true;
       status.textContent = "Searching...";
       this.renderLocationSearchResults(resultsList, []);
       const searchBounds = this.getSearchBounds();
+      const requestId = ++requestSequence;
 
       void this.callbacks.onLocationSearch(query, searchBounds)
         .then((results) => {
+          if (requestId !== requestSequence) return;
           if (results.length === 0) {
             status.textContent = "No results.";
             return;
@@ -216,13 +262,28 @@ export class MapView {
           status.textContent = `${rankedResults.length} result${rankedResults.length === 1 ? "" : "s"}.`;
         })
         .catch((error: unknown) => {
+          if (requestId !== requestSequence) return;
           status.textContent = error instanceof Error ? error.message : String(error);
         })
         .finally(() => {
+          if (requestId !== requestSequence) return;
           button.disabled = false;
-          input.disabled = false;
-          input.focus();
         });
+    });
+
+    input?.addEventListener("input", () => {
+      requestSequence += 1;
+      if (button) button.disabled = false;
+      if (status) status.textContent = "";
+      this.renderLocationSearchResults(resultsList, []);
+    });
+
+    input?.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      requestSequence += 1;
+      if (button) button.disabled = false;
+      if (status) status.textContent = "";
+      this.renderLocationSearchResults(resultsList, []);
     });
 
     container.append(form);
@@ -234,6 +295,10 @@ export class MapView {
   ): void {
     resultsList.replaceChildren();
     resultsList.hidden = rankedResults.length === 0;
+    resultsList
+      .closest("form")
+      ?.querySelector<HTMLInputElement>("#mapLocationSearch")
+      ?.setAttribute("aria-expanded", String(rankedResults.length > 0));
 
     for (const item of rankedResults) {
       const button = document.createElement("button");
@@ -265,6 +330,7 @@ export class MapView {
         if (status) {
           status.textContent = item.result.label;
         }
+        this.renderLocationSearchResults(resultsList, []);
       });
 
       resultsList.append(button);
@@ -272,107 +338,107 @@ export class MapView {
   }
 
   render(model: MapRenderModel): void {
-    this.stationLayer.clearLayers();
-    this.pointLayer.clearLayers();
-    this.previewLayer.clearLayers();
-    this.circleLayer.clearLayers();
-
     const stationById = new Map(model.stations.map((station) => [station.id, station]));
+    const activeStation = model.activeStationId ? stationById.get(model.activeStationId) : undefined;
+    const nextStationRenderKey = stationRenderKey(model);
 
-    for (const station of model.stations) {
-      const isOrigin = station.id === model.selectedOriginStationId;
-      const isDestination = station.id === model.selectedDestinationStationId;
-      const isActive = station.id === model.activeStationId;
+    if (nextStationRenderKey !== this.lastStationRenderKey) {
+      this.lastStationRenderKey = nextStationRenderKey;
+      this.stationLayer.clearLayers();
+      this.circleLayer.clearLayers();
 
-      const color = isOrigin && isDestination ? "#7c3aed" : isOrigin ? "#1d9d53" : isDestination ? "#c92a2a" : "#2563eb";
+      for (const station of model.stations) {
+        const isOrigin = station.id === model.selectedOriginStationId;
+        const isDestination = station.id === model.selectedDestinationStationId;
+        const isActive = station.id === model.activeStationId;
 
-      const marker = L.circleMarker([station.lat, station.lon], {
-        radius: isActive ? 9 : 7,
-        color,
-        fillColor: color,
-        fillOpacity: isActive ? 0.95 : 0.85,
-        weight: 2,
-        bubblingMouseEvents: false
-      });
-      marker.bindTooltip(station.name, { direction: "top" });
-      marker.on("click", (event: L.LeafletMouseEvent) => {
-        L.DomEvent.stop(event);
-        this.callbacks.onStationClick(station.id);
-      });
-      marker.addTo(this.stationLayer);
+        const color = isOrigin && isDestination ? "#7c3aed" : isOrigin ? "#1d9d53" : isDestination ? "#c92a2a" : "#2563eb";
 
-      if (isActive || isOrigin || isDestination) {
-        L.circle([station.lat, station.lon], {
-          radius: station.radiusM,
+        const marker = L.circleMarker([station.lat, station.lon], {
+          radius: isActive ? 9 : 7,
           color,
           fillColor: color,
-          fillOpacity: isActive ? 0.14 : 0.09,
-          weight: isActive ? 1.8 : 1.2,
-          interactive: false
-        }).addTo(this.circleLayer);
-      }
-    }
-
-    const activeStation = model.activeStationId ? stationById.get(model.activeStationId) : undefined;
-    if (activeStation) {
-      for (const point of activeStation.walkPoints) {
-        const isSelected = point.id === model.selectedPointId;
-        const colors = pointMarkerColors(point, isSelected);
-        const marker = L.circleMarker([point.lat, point.lon], {
-          radius: isSelected ? 7 : 5,
-          color: colors.color,
-          fillColor: colors.fillColor,
-          fillOpacity: 0.96,
-          weight: isSelected ? 2.2 : 1.5,
+          fillOpacity: isActive ? 0.95 : 0.85,
+          weight: 2,
           bubblingMouseEvents: false
         });
-        marker.bindTooltip(`${point.tripMode === "driving" ? "Driving" : "Metro"}: ${point.label || point.id}`, { direction: "top" });
+        marker.bindTooltip(station.name, { direction: "top" });
         marker.on("click", (event: L.LeafletMouseEvent) => {
           L.DomEvent.stop(event);
-          this.callbacks.onPointClick(activeStation.id, point.id);
+          this.callbacks.onStationClick(station.id);
         });
-        marker.addTo(this.pointLayer);
+        marker.addTo(this.stationLayer);
+
+        if (isActive || isOrigin || isDestination) {
+          L.circle([station.lat, station.lon], {
+            radius: station.radiusM,
+            color,
+            fillColor: color,
+            fillOpacity: isActive ? 0.14 : 0.09,
+            weight: isActive ? 1.8 : 1.2,
+            interactive: false
+          }).addTo(this.circleLayer);
+        }
       }
     }
 
-    const sortedTrips = [...model.previewTrips].sort((left, right) => {
-      if (left.id === model.selectedTripId) return 1;
-      if (right.id === model.selectedTripId) return -1;
-      return 0;
-    });
-    for (const trip of sortedTrips) {
-      this.renderTripPreview(trip, trip.id === model.selectedTripId, Boolean(model.selectedTripId));
+    const nextPointRenderKey = pointRenderKey(model, activeStation);
+    if (nextPointRenderKey !== this.lastPointRenderKey) {
+      this.lastPointRenderKey = nextPointRenderKey;
+      this.pointLayer.clearLayers();
+
+      if (activeStation) {
+        for (const point of activeStation.walkPoints) {
+          const isSelected = point.id === model.selectedPointId;
+          const colors = pointMarkerColors(point, isSelected);
+          const marker = L.circleMarker([point.lat, point.lon], {
+            radius: isSelected ? 7 : 5,
+            color: colors.color,
+            fillColor: colors.fillColor,
+            fillOpacity: 0.96,
+            weight: isSelected ? 2.2 : 1.5,
+            bubblingMouseEvents: false
+          });
+          marker.bindTooltip(`${point.tripMode === "driving" ? "Driving" : "Metro"}: ${point.label || point.id}`, { direction: "top" });
+          marker.on("click", (event: L.LeafletMouseEvent) => {
+            L.DomEvent.stop(event);
+            this.callbacks.onPointClick(activeStation.id, point.id);
+          });
+          marker.addTo(this.pointLayer);
+        }
+      }
+    }
+
+    if (
+      model.previewTrips !== this.lastPreviewTrips ||
+      model.selectedTripId !== this.lastSelectedTripId
+    ) {
+      this.lastPreviewTrips = model.previewTrips;
+      this.lastSelectedTripId = model.selectedTripId;
+      this.previewLayer.clearLayers();
+
+      for (const segment of collectPreviewSegments(model.previewTrips, model.selectedTripId)) {
+        this.renderPreviewSegment(segment, Boolean(model.selectedTripId));
+      }
     }
   }
 
-  private renderTripPreview(trip: GeneratedTrip, isSelected: boolean, hasSelectedTrip: boolean): void {
-    const toLatLng = (coords: LonLat[]) => coords.map((c) => L.latLng(c[1], c[0]));
-    const baseOpacity = hasSelectedTrip && !isSelected ? 0.22 : 0.82;
-    const selectedWeightBoost = isSelected ? 2.1 : 0;
+  private renderPreviewSegment(segment: PreviewSegment, hasSelectedTrip: boolean): void {
+    const styles: Record<PreviewSegment["role"], { color: string; weight: number }> = {
+      "walk-in": { color: "#2f855a", weight: 3.4 },
+      metro: { color: "#1d4ed8", weight: 3.6 },
+      "walk-out": { color: "#b45309", weight: 3.4 },
+      driving: { color: "#7c3aed", weight: 3.7 }
+    };
+    const style = styles[segment.role];
+    const baseOpacity = hasSelectedTrip ? 0.22 : 0.82;
 
-    if (trip.routeMode === "driving") {
-      L.polyline(toLatLng(trip.drivingCoords), {
-        color: "#7c3aed",
-        weight: 3.7 + selectedWeightBoost,
-        opacity: isSelected ? 0.96 : baseOpacity
-      }).addTo(this.previewLayer);
-      return;
-    }
-
-    L.polyline(toLatLng(trip.walkInCoords), {
-      color: "#2f855a",
-      weight: 3.4 + selectedWeightBoost,
-      opacity: isSelected ? 0.96 : baseOpacity
-    }).addTo(this.previewLayer);
-    L.polyline(toLatLng(trip.metroCoords), {
-      color: "#1d4ed8",
-      weight: 3.6 + selectedWeightBoost,
-      opacity: isSelected ? 0.98 : Math.min(0.84, baseOpacity)
-    }).addTo(this.previewLayer);
-    L.polyline(toLatLng(trip.walkOutCoords), {
-      color: "#b45309",
-      weight: 3.4 + selectedWeightBoost,
-      opacity: isSelected ? 0.96 : baseOpacity
+    L.polyline(segment.coords.map((coord) => L.latLng(coord[1], coord[0])), {
+      color: style.color,
+      weight: style.weight + (segment.highlighted ? 2.1 : 0),
+      opacity: segment.highlighted
+        ? segment.role === "metro" ? 0.98 : 0.96
+        : segment.role === "metro" ? Math.min(0.84, baseOpacity) : baseOpacity
     }).addTo(this.previewLayer);
   }
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { PanelCallbacks, PanelModel } from "../ui/panel";
-import { renderPanel, updatePointClocks } from "../ui/panel";
+import { renderPanel, updateGenerationProgress, updatePointClocks } from "../ui/panel";
 
 function createCallbacks(): PanelCallbacks {
   const noop = () => undefined;
@@ -236,6 +236,51 @@ describe("renderPanel", () => {
 
     updatePointClocks(container, {});
     expect(updatedRow?.querySelector("[data-point-clock]")).toBeNull();
+  });
+
+  it("patches generation progress without rebuilding the panel", () => {
+    const container = document.createElement("div");
+    const model: PanelModel = {
+      mode: "idle",
+      busy: true,
+      stations: [],
+      activeStationId: null,
+      selectedPointId: null,
+      selectedOriginStationId: null,
+      selectedDestinationStationId: null,
+      orsApiKey: "",
+      overpassUrl: "https://example.test",
+      tripCount: 10,
+      randomCount: 1,
+      nearbyCandidates: [],
+      generatedTrips: [],
+      selectedTripId: null,
+      pointClocks: {},
+      generationProgress: {
+        phase: "setup",
+        message: "Starting",
+        current: 0,
+        total: 10,
+        percent: 0
+      },
+      canDownload: false
+    };
+
+    renderPanel(container, model, createCallbacks());
+    const originalBox = container.querySelector(".progress-box");
+    expect(updateGenerationProgress(container, {
+      phase: "assemble",
+      message: "Composing trip GPX files",
+      current: 7,
+      total: 10,
+      percent: 70
+    })).toBe(true);
+
+    expect(container.querySelector(".progress-box")).toBe(originalBox);
+    expect(container.querySelector(".progress-box")?.className).toContain("phase-assemble");
+    expect(container.querySelector(".progress-message")?.textContent).toBe("Composing trip GPX files");
+    expect(container.querySelector(".progress-meta")?.textContent).toBe("7/10");
+    expect((container.querySelector(".progress-bar-fill") as HTMLElement).style.width).toBe("70%");
   });
 
   it("renders generated trips and wires select/delete actions", () => {

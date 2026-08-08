@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { OrsClient } from "../lib/orsClient";
 import type { LonLat } from "../lib/types";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("OrsClient", () => {
   it("requests walking elevation and retries on 429 before succeeding", async () => {
@@ -110,5 +114,32 @@ describe("OrsClient", () => {
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/driving-car/geojson");
     expect(alternatives).toHaveLength(2);
     expect(alternatives[1]?.[1]).toEqual([13.46, 52.56, 44]);
+  });
+
+  it("does not retry non-retriable authorization failures", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("invalid key", { status: 401 })
+    );
+    const client = new OrsClient({ apiKey: "invalid", retryBaseDelayMs: 1, maxRetries: 3 });
+
+    await expect(
+      client.getWalkingRoute({ lat: 52.5, lon: 13.4 }, { lat: 52.51, lon: 13.41 })
+    ).rejects.toThrow("ORS 401");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not hide authorization failures behind a driving fallback", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("invalid key", { status: 401 })
+    );
+    const client = new OrsClient({ apiKey: "invalid", retryBaseDelayMs: 1, maxRetries: 3 });
+
+    await expect(
+      client.getDrivingRouteAlternatives(
+        { lat: 52.5, lon: 13.4 },
+        { lat: 52.51, lon: 13.41 }
+      )
+    ).rejects.toThrow("ORS 401");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });

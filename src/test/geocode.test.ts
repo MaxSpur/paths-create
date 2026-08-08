@@ -4,6 +4,7 @@ import { reverseGeocode, searchLocations } from "../lib/geocode";
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("searchLocations", () => {
@@ -51,10 +52,30 @@ describe("searchLocations", () => {
       }
     ]);
   });
+
+  it("reuses a recent identical forward search", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify([{ display_name: "Vincennes, France", lat: "48.847", lon: "2.439" }]),
+        { status: 200 }
+      )
+    );
+
+    const firstSearch = searchLocations("Vincennes cache test", { limit: 3 });
+    await vi.runAllTimersAsync();
+    const first = await firstSearch;
+    const second = await searchLocations("  vincennes CACHE test ", { limit: 3 });
+
+    expect(second).toEqual(first);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
 });
 
 describe("reverseGeocode", () => {
   it("returns a display label with structured address details", async () => {
+    vi.useFakeTimers();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
         JSON.stringify({
@@ -70,7 +91,9 @@ describe("reverseGeocode", () => {
       )
     );
 
-    const result = await reverseGeocode({ lat: 50.12345, lon: 8.12345 });
+    const resultPromise = reverseGeocode({ lat: 50.12345, lon: 8.12345 });
+    await vi.runAllTimersAsync();
+    const result = await resultPromise;
 
     expect(result).toEqual({
       label: "Origin Road 1, Berlin",

@@ -1,20 +1,34 @@
-# SOURCES
+# Sources
 
-## External References
+Authoritative external assumptions, last reviewed 2026-08-08. Recheck them before changing service policy, runtime support, or deployment infrastructure.
 
-- openrouteservice login: https://openrouteservice.org/log-in/
-- openrouteservice dashboard: https://openrouteservice.org/dev/
-- openrouteservice API landing page: https://api.openrouteservice.org/
-- openrouteservice FAQ: https://openrouteservice.org/faq/
-- openrouteservice directions backend docs: https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/
-- Overpass API overview: https://wiki.openstreetmap.org/wiki/Overpass_API
-- OpenStreetMap copyright and attribution: https://www.openstreetmap.org/copyright
-- Nominatim search API: https://nominatim.org/release-docs/latest/api/Search/
-- Nominatim usage policy: https://operations.osmfoundation.org/policies/nominatim/
-- Leaflet documentation: https://leafletjs.com/reference.html
+## Routing And Elevation
 
-## Repository References
+- [openrouteservice API](https://api.openrouteservice.org/) — production API surface.
+- [Directions API reference](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/) — profiles, request shapes, alternatives, and elevation options.
+- [openrouteservice dashboard](https://openrouteservice.org/dev/) — user key management.
+- [openrouteservice FAQ](https://openrouteservice.org/faq/) — quota and account guidance. Avoid copying volatile login UI details into the README.
 
-- Deployment workflow: `.github/workflows/deploy.yml`
-- User-facing usage and setup: `README.md`
-- Durable architecture summary: `ARCHITECTURE.md`
+## OpenStreetMap Data And Search
+
+- [Overpass API overview](https://wiki.openstreetmap.org/wiki/Overpass_API) — query model and public-instance constraints.
+- [Nominatim Search API](https://nominatim.org/release-docs/latest/api/Search/) — explicit forward-search parameters.
+- [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/) — rate limiting and public-service usage. The app keeps one serialized queue and does not use autocomplete.
+- [OpenStreetMap copyright](https://www.openstreetmap.org/copyright) — map/data attribution.
+- [Leaflet reference](https://leafletjs.com/reference.html) — map and layer behavior.
+
+## Runtime, Build, And Deployment
+
+- [Node.js 24 release archive](https://nodejs.org/en/download/archive/v24) — pinned LTS line and bundled npm version.
+- [Vite server options](https://vite.dev/config/server-options.html) — fixed host, port, and `strictPort` behavior.
+- [GitHub Pages custom workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) — configure, upload, deploy, and permission boundaries.
+- [actions/checkout](https://github.com/actions/checkout) and [actions/setup-node](https://github.com/actions/setup-node) — current supported action majors and Node version-file usage.
+
+## Repository Contracts
+
+- `.github/workflows/check.yml` — pull-request verification.
+- `.github/workflows/deploy.yml` — `master` verification and Pages deployment.
+- `README.md` — user-facing setup and workflow.
+- `ARCHITECTURE.md` — runtime boundaries and behavior.
+- `PERFORMANCE.md` — benchmark method and current measured comparison.
+- `GPX_EXPORT.md` — exported XML contract.

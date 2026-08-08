@@ -100,3 +100,10 @@ Example:
   </trkseg>
 </trk>
 ```
+
+## Implementation And Validation
+
+- `src/lib/gpxWriter.ts` is the implementation source of truth.
+- `src/test/gpxWriter.test.ts` covers parseable metro and driving output, structured addresses, and 2D coordinates.
+- Run `npm run test:run -- src/test/gpxWriter.test.ts` for a focused contract check, and `npm run check` before release.
+- Coordinate counts and `distanceM` are computed once per segment and reused in both the track and segment-reference metadata; the duplicated values must stay identical.

@@ -163,6 +163,25 @@ export function updatePointClocks(container: HTMLElement, pointClocks: Record<st
   }
 }
 
+export function updateGenerationProgress(
+  container: HTMLElement,
+  progress: NonNullable<PanelModel["generationProgress"]>
+): boolean {
+  const box = container.querySelector<HTMLElement>(".progress-box");
+  const message = box?.querySelector<HTMLElement>(".progress-message");
+  const meta = box?.querySelector<HTMLElement>(".progress-meta");
+  const fill = box?.querySelector<HTMLElement>(".progress-bar-fill");
+  if (!box || !message || !meta || !fill) {
+    return false;
+  }
+
+  box.className = `progress-box phase-${progress.phase}`;
+  message.textContent = progress.message;
+  meta.textContent = `${progress.current}/${progress.total}`;
+  fill.style.width = `${Math.max(0, Math.min(100, progress.percent)).toFixed(1)}%`;
+  return true;
+}
+
 interface PanelScrollState {
   panelScrollTop: number;
   stationListScrollTop: number | null;

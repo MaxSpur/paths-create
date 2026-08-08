@@ -3,7 +3,7 @@
 Origin-Destination Creator is a browser-only tool for building synthetic transit-like GPX tracks for testing, demos, and map visualizations.
 
 Live app:
-[https://www.maximspur.com/paths-create](https://www.maximspur.com/paths-create)
+[https://www.maximspur.com/paths-create/](https://www.maximspur.com/paths-create/)
 
 It lets you define origin and destination stations, build walking-access point pools around them, and generate complete trips made of:
 
@@ -85,51 +85,23 @@ Use the app in this order:
 
 ### Prerequisites
 
-- Node.js 20+ is recommended.
-- npm is required.
+- Node.js 24 LTS. The current tested version is pinned in `.node-version`.
+- npm 11.12.1 or newer.
 
 ### Install and Run
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-Then open the local URL shown by Vite in your browser.
+Open [http://127.0.0.1:5198/](http://127.0.0.1:5198/). The fixed strict port preserves origin-scoped saved data; if it is occupied, Vite stops and reports the collision instead of silently choosing a different origin.
 
 ## Getting an openrouteservice API Key
 
-This app uses the public openrouteservice API for walking directions and elevation. You need your own API key.
+This app uses openrouteservice for directions and elevation. Create or reveal a key in the [ORS dashboard](https://openrouteservice.org/dev/), then paste it into `ORS API Key` in Settings. The key stays in this browser origin's localStorage.
 
-### Step-by-step
-
-1. Go to the official openrouteservice login page:
-   [https://openrouteservice.org/log-in/](https://openrouteservice.org/log-in/)
-2. Sign in with GitHub.
-   openrouteservice’s current login page explicitly says: “Log in to obtain an API key and access the developers dashboard,” and the official sign-in button is “Sign in with GitHub.”
-3. Open the ORS dashboard:
-   [https://openrouteservice.org/dev/](https://openrouteservice.org/dev/)
-4. Create or reveal your API key in the dashboard.
-5. Copy the key.
-6. Paste it into the app’s `ORS API Key` field in the Settings section.
-
-### If login or dashboard access is flaky
-
-The official ORS FAQ notes that session sharing between `account.heigit.org` and `openrouteservice.org` may fail on some browser setups, especially with stricter privacy settings.
-
-If the dashboard does not keep you signed in:
-
-- allow cookies for `openrouteservice.org`,
-- disable enhanced tracking protection for that site,
-- allow third-party cookies for the site,
-- try a different browser if needed.
-
-Official FAQ:
-[https://openrouteservice.org/faq/](https://openrouteservice.org/faq/)
-
-### Quotas and limits
-
-According to the ORS FAQ, quota resets every 24 hours. If you exceed the quota, the API will reject further requests until the quota resets or you move to a higher plan.
+Account flows and quotas can change; use the [ORS FAQ](https://openrouteservice.org/faq/) and the project [source registry](SOURCES.md) rather than relying on copied login-screen text.
 
 ## What The App Produces
 
@@ -150,6 +122,7 @@ The download is a ZIP archive containing one GPX file per generated trip.
 - Direct driving routes and driving alternatives come from openrouteservice.
 - The rail leg is computed from OSM rail graph data and then elevation-draped through ORS.
 - State is persisted locally in the browser via `localStorage`.
+- Saved state belongs to the exact browser origin. Changing the host or port shows a separate state.
 - Generated trip previews are session-local and are cleared by page reloads or `Delete all`.
 
 ## Privacy And Local Data
@@ -160,25 +133,33 @@ The download is a ZIP archive containing one GPX file per generated trip.
 
 ## Development
 
-### Test
+### Verify
 
 ```bash
-npm run test:run
+npm run check
 ```
 
-### Build
+This runs the tests, production TypeScript/Vite build, and initial bundle-size budget.
+
+### Benchmark
 
 ```bash
-npm run build
+npm run benchmark
 ```
+
+See [PERFORMANCE.md](PERFORMANCE.md) for the deterministic Vincennes-to-Géodata fixture and current reference results.
+
+### Preview
+
+```bash
+npm run preview
+```
+
+Open [http://127.0.0.1:4198/](http://127.0.0.1:4198/).
 
 ### Deploy
 
-GitHub Pages deployment is configured in:
-
-- `.github/workflows/deploy.yml`
-
-It builds the app and deploys `dist/` using GitHub Actions.
+Pull requests run `.github/workflows/check.yml`. Pushes to `master` run the same verification gate, build `dist/`, and deploy through `.github/workflows/deploy.yml`. Local work is not published until it is committed and pushed.
 
 ## Current Limits
 
@@ -189,11 +170,8 @@ It builds the app and deploys `dist/` using GitHub Actions.
 ## License
 
 This project is released under the MIT License.
-See [LICENSE](/Users/MadMax/Developer/Websites/Origin-Destination-Creator/LICENSE).
+See [LICENSE](LICENSE).
 
 ## Sources
 
-- ORS login: [https://openrouteservice.org/log-in/](https://openrouteservice.org/log-in/)
-- ORS dashboard: [https://openrouteservice.org/dev/](https://openrouteservice.org/dev/)
-- ORS API landing page: [https://api.openrouteservice.org/](https://api.openrouteservice.org/)
-- ORS FAQ: [https://openrouteservice.org/faq/](https://openrouteservice.org/faq/)
+External service, runtime, and deployment references are maintained in [SOURCES.md](SOURCES.md).

@@ -5,14 +5,20 @@ const NOMINATIM_SEARCH_URL = "https://nominatim.openstreetmap.org/search";
 const CACHE_DECIMALS = 5;
 const MAX_CONCURRENCY = 1;
 const MIN_REQUEST_GAP_MS = 2000;
+const SEARCH_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_CACHE_MAX_ENTRIES = 32;
 
 const cache = new Map<string, ReverseGeocodeResult>();
+const searchCache = new Map<string, { expiresAt: number; results: LocationSearchResult[] }>();
+
+type QueuePriority = "interactive" | "background";
 
 type QueueEntry<T> = {
   task: () => Promise<T>;
   resolve: (value: T) => void;
   reject: (error: unknown) => void;
   hooks?: ReverseGeocodeHooks;
+  priority: QueuePriority;
 };
 
 const queue: Array<QueueEntry<any>> = [];
@@ -102,17 +108,64 @@ async function processQueue(): Promise<void> {
   }
 }
 
-function enqueue<T>(task: () => Promise<T>, hooks?: ReverseGeocodeHooks): Promise<T> {
+function enqueue<T>(
+  task: () => Promise<T>,
+  hooks?: ReverseGeocodeHooks,
+  priority: QueuePriority = "background"
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const queuePosition = active + queue.length;
+    const insertionIndex = priority === "interactive"
+      ? queue.findIndex((entry) => entry.priority === "background")
+      : -1;
+    const queueIndex = insertionIndex >= 0 ? insertionIndex : queue.length;
+    const queuePosition = active + queueIndex;
     const estimatedWait = estimateWaitMs(queuePosition);
     if (estimatedWait > 0 || queuePosition > 0) {
       hooks?.onQueued?.({ queuePosition, estimatedWaitMs: estimatedWait });
     }
 
-    queue.push({ task, resolve, reject, hooks });
+    queue.splice(queueIndex, 0, { task, resolve, reject, hooks, priority });
     void processQueue();
   });
+}
+
+function locationSearchCacheKey(
+  query: string,
+  limit: number,
+  viewBox?: LocationSearchBounds
+): string {
+  const boundsKey = viewBox
+    ? [viewBox.south, viewBox.west, viewBox.north, viewBox.east]
+        .map((value) => value.toFixed(2))
+        .join(",")
+    : "global";
+  const normalizedQuery = query.toLowerCase().replace(/\s+/g, " ");
+  return `${normalizedQuery}|${limit}|${boundsKey}`;
+}
+
+function getCachedLocationSearch(key: string): LocationSearchResult[] | null {
+  const cached = searchCache.get(key);
+  if (!cached) return null;
+  if (cached.expiresAt <= Date.now()) {
+    searchCache.delete(key);
+    return null;
+  }
+
+  searchCache.delete(key);
+  searchCache.set(key, cached);
+  return cached.results;
+}
+
+function cacheLocationSearch(key: string, results: LocationSearchResult[]): void {
+  searchCache.set(key, {
+    expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+    results
+  });
+  while (searchCache.size > SEARCH_CACHE_MAX_ENTRIES) {
+    const oldestKey = searchCache.keys().next().value;
+    if (typeof oldestKey !== "string") break;
+    searchCache.delete(oldestKey);
+  }
 }
 
 function formatAddress(payload: {
@@ -222,12 +275,18 @@ export async function searchLocations(
 
   const normalizedOptions = typeof options === "number" ? { limit: options } : options;
   const limit = normalizedOptions.limit ?? 5;
+  const boundedLimit = Math.max(1, Math.min(10, Math.round(limit)));
+  const searchKey = locationSearchCacheKey(trimmedQuery, boundedLimit, normalizedOptions.viewBox);
+  const cachedResults = getCachedLocationSearch(searchKey);
+  if (cachedResults) {
+    return cachedResults;
+  }
 
-  return enqueue(async () => {
+  const results = await enqueue(async () => {
     const params = new URLSearchParams({
       format: "jsonv2",
       q: trimmedQuery,
-      limit: String(Math.max(1, Math.min(10, Math.round(limit)))),
+      limit: String(boundedLimit),
       addressdetails: "1"
     });
 
@@ -280,7 +339,10 @@ export async function searchLocations(
         };
       })
       .filter((result): result is LocationSearchResult => result !== null);
-  });
+  }, undefined, "interactive");
+
+  cacheLocationSearch(searchKey, results);
+  return results;
 }
 
 export async function reverseGeocode(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<ReverseGeocodeResult> {

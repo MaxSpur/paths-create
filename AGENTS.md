@@ -9,19 +9,25 @@ There is no backend. Treat the browser as the whole runtime, and do not introduc
 ## First Reads
 
 - Read `ARCHITECTURE.md` before changing core behavior.
-- Read `TODO.md` for current backlog and recent work.
+- Read `TODO.md` for the current active backlog.
 - Read `LESSONS.md` before touching map interactions, station radii, panel rendering, or address lookup behavior.
 - Read `SOURCES.md` when external service assumptions, quotas, or documentation are relevant.
+- Read `PERFORMANCE.md` before changing rendering, rail routing, bundle loading, or benchmarks.
 - Use `README.md` as the user-facing contract for setup and app behavior.
 
 ## Commands
 
-- Install: `npm install`
-- Dev server: `npm run dev`
+- Install: `npm ci`
+- Dev server: `npm run dev` (`http://127.0.0.1:5198/`)
+- Preview: `npm run preview` (`http://127.0.0.1:4198/`)
 - Tests: `npm run test:run`
 - Build: `npm run build`
+- Full gate: `npm run check`
+- Benchmarks: `npm run benchmark`
 
-Run `npm run test:run` for most code changes. Run `npm run build` before declaring TypeScript/build safety. For UI work, also inspect the app in a browser when the change affects layout or interactions.
+Run `npm run test:run` for focused code changes and `npm run check` before handoff. For UI work, use the in-app browser whenever possible. If it is unavailable or lacks a required capability, report the limitation before choosing a fallback.
+
+The fixed, strict ports preserve the app's origin-scoped localStorage. If a port is occupied, identify the process instead of silently changing the port.
 
 ## Code Boundaries
 
@@ -47,6 +53,7 @@ Run `npm run test:run` for most code changes. Run `npm run build` before declari
 
 ## Project Memory
 
-- Keep durable notes short and current in `ARCHITECTURE.md`, `TODO.md`, `LESSONS.md`, and `SOURCES.md`.
+- Keep durable notes short and current in `ARCHITECTURE.md`, `TODO.md`, `LESSONS.md`, `SOURCES.md`, and `PERFORMANCE.md`.
+- Treat `GPX_EXPORT.md` as the exported-file contract, not a task log.
 - `CODEX_MEMO.md` is local/private scratch space and is ignored by git. Do not rely on it as the durable project memory.
 - Update the durable docs after meaningful architecture changes, behavior changes, or avoidable mistakes.

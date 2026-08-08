@@ -200,7 +200,10 @@ export function persistState(state: AppState): void {
 export interface StateStore {
   getState: () => AppState;
   setState: (next: AppState) => void;
-  update: (updater: (current: AppState) => AppState) => void;
+  update: (
+    updater: (current: AppState) => AppState,
+    options?: { notify?: boolean }
+  ) => void;
   reset: () => void;
   subscribe: (listener: (state: AppState) => void) => () => void;
 }
@@ -209,9 +212,11 @@ export function createStateStore(initialState?: AppState): StateStore {
   let state = initialState ?? loadState();
   const listeners = new Set<(state: AppState) => void>();
 
-  const emit = () => {
+  const emit = (notify = true) => {
     persistState(state);
-    listeners.forEach((listener) => listener(state));
+    if (notify) {
+      listeners.forEach((listener) => listener(state));
+    }
   };
 
   return {
@@ -220,10 +225,10 @@ export function createStateStore(initialState?: AppState): StateStore {
       state = normalizeState(next) ?? createDefaultState();
       emit();
     },
-    update: (updater) => {
+    update: (updater, options) => {
       const next = updater(structuredClone(state));
       state = normalizeState(next) ?? createDefaultState();
-      emit();
+      emit(options?.notify !== false);
     },
     reset: () => {
       state = createDefaultState();
