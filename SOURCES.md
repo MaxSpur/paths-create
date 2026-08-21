@@ -22,7 +22,7 @@ Authoritative external assumptions, last reviewed 2026-08-08. Recheck them befor
 - [Node.js 24 release archive](https://nodejs.org/en/download/archive/v24) — pinned LTS line and bundled npm version.
 - [Vite server options](https://vite.dev/config/server-options.html) — fixed host, port, and `strictPort` behavior.
 - [GitHub Pages custom workflows](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages) — configure, upload, deploy, and permission boundaries.
-- [actions/checkout](https://github.com/actions/checkout) and [actions/setup-node](https://github.com/actions/setup-node) — current supported action majors and Node version-file usage.
+- [actions/checkout](https://github.com/actions/checkout), [actions/setup-node](https://github.com/actions/setup-node), [actions/configure-pages](https://github.com/actions/configure-pages), [actions/upload-pages-artifact](https://github.com/actions/upload-pages-artifact), and [actions/deploy-pages](https://github.com/actions/deploy-pages) — supported action majors and Node runtime compatibility, last checked 2026-08-21.
 
 ## Repository Contracts
 
