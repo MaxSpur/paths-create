@@ -109,13 +109,25 @@ function pointClockHtml(pointClock: PointClockView): string {
   ).toFixed(3)}"></span>`;
 }
 
-function tripLabel(trip: GeneratedTrip): string {
-  const origin = trip.originPoint.label?.trim() || trip.originPoint.id;
-  const destination = trip.destinationPoint.label?.trim() || trip.destinationPoint.id;
+function latestMatchingPoint(point: WalkPoint, stations: StationRecord[]): WalkPoint {
+  return stations
+    .flatMap((station) => station.walkPoints)
+    .find((candidate) =>
+      candidate.id === point.id
+      && Math.abs(candidate.lat - point.lat) < 1e-7
+      && Math.abs(candidate.lon - point.lon) < 1e-7
+    ) ?? point;
+}
+
+function tripLabel(trip: GeneratedTrip, stations: StationRecord[]): string {
+  const originPoint = latestMatchingPoint(trip.originPoint, stations);
+  const destinationPoint = latestMatchingPoint(trip.destinationPoint, stations);
+  const origin = originPoint.label?.trim() || originPoint.id;
+  const destination = destinationPoint.label?.trim() || destinationPoint.id;
   return `${origin} -> ${destination}`;
 }
 
-function tripRow(trip: GeneratedTrip, selectedTripId: string | null): string {
+function tripRow(trip: GeneratedTrip, selectedTripId: string | null, stations: StationRecord[]): string {
   const isSelected = trip.id === selectedTripId;
   const modeLabel = trip.routeMode === "driving" ? "Driving" : "Metro";
   return `<tr data-trip-id="${escapeHtml(trip.id)}" class="${isSelected ? "is-selected" : ""}">
@@ -123,7 +135,7 @@ function tripRow(trip: GeneratedTrip, selectedTripId: string | null): string {
       <span class="trip-mode ${trip.routeMode}">${modeLabel}</span>
     </td>
     <td>
-      <span class="trip-label">${escapeHtml(tripLabel(trip))}</span>
+      <span class="trip-label">${escapeHtml(tripLabel(trip, stations))}</span>
       <span class="trip-file">${escapeHtml(trip.fileName)}</span>
     </td>
     <td class="trip-actions">
@@ -279,6 +291,8 @@ function progressHtml(model: PanelModel): string {
         ? `<div class="progress-report">
             <div>Requested: ${report.requestedTrips} | Generated: ${report.generatedTrips} | Failed: ${report.failedTrips}</div>
             <div>Unique pairs: ${report.pairingStats.uniquePairsUsed} | Max pair reuse: ${report.pairingStats.maxPairReuse}</div>
+            <div>Reused this session: metro path ${report.reuseStats.metroPath ? "yes" : "no"} | Walking legs ${report.reuseStats.walkingLegs}/${report.reuseStats.walkingLegRequests}</div>
+            <div>Rail setup: ${report.reuseStats.metroPath ? "session cache" : report.serviceStats.overpassFallback ? "documented backup Overpass endpoint" : "configured Overpass endpoint"}</div>
             ${failures ? `<ul>${failures}</ul>` : ""}
           </div>`
         : ""
@@ -391,7 +405,7 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
               <table class="trips-table">
                 <thead><tr><th>Mode</th><th>Trip</th><th>Actions</th></tr></thead>
                 <tbody>
-                  ${model.generatedTrips.map((trip) => tripRow(trip, model.selectedTripId)).join("")}
+                  ${model.generatedTrips.map((trip) => tripRow(trip, model.selectedTripId, model.stations)).join("")}
                 </tbody>
               </table>
             </div>`

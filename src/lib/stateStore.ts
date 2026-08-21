@@ -1,10 +1,9 @@
 import type { AppState, StationRecord, StructuredAddress, WalkPoint } from "./types";
+import { DEFAULT_OVERPASS_URL } from "./overpassClient";
 import { clampStationRadiusM } from "./stationRadius";
 
 export const STORAGE_KEY = "odc.generator.state.v1";
 export const STATE_SCHEMA_VERSION = 1;
-
-const DEFAULT_OVERPASS_URL = "https://overpass-api.de/api/interpreter";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;

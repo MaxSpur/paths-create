@@ -11,7 +11,7 @@ Authoritative external assumptions, last reviewed 2026-08-08. Recheck them befor
 
 ## OpenStreetMap Data And Search
 
-- [Overpass API overview](https://wiki.openstreetmap.org/wiki/Overpass_API) — query model and public-instance constraints.
+- [Overpass API overview and public instances](https://wiki.openstreetmap.org/wiki/Overpass_API) — query model, public-instance constraints, and the currently documented global backup endpoint (`overpass.private.coffee`). The app uses at most one sequential backup attempt for transient failures of its default endpoint.
 - [Nominatim Search API](https://nominatim.org/release-docs/latest/api/Search/) — explicit forward-search parameters.
 - [Nominatim usage policy](https://operations.osmfoundation.org/policies/nominatim/) — rate limiting and public-service usage. The app keeps one serialized queue and does not use autocomplete.
 - [OpenStreetMap copyright](https://www.openstreetmap.org/copyright) — map/data attribution.

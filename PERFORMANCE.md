@@ -26,10 +26,19 @@ Environment: macOS arm64, Node 26.3.0, npm 11.16.0. The dependency baseline used
 | 20×20 metro preview, no selected trip | 1,200 polylines | 41 unique polylines | 96.6% fewer |
 | Walking request after ORS 401 | 4 requests | 1 request | 75% fewer |
 | Driving-alternatives request after ORS 401 | 8 requests | 1 request | 87.5% fewer |
-| Initial JavaScript | 93.73 kB gzip | 64.23 kB gzip | 31.5% lower |
-| Test suite | 40 tests, ~2.83 s | 49 tests, ~1.48 s | more coverage, ~48% shorter |
+| Initial JavaScript | 93.73 kB gzip | 65.45 kB gzip | 30.2% lower |
+| Test suite | 40 tests, ~2.83 s | 53 tests, ~1.63 s | more coverage, ~42% shorter |
 
-The initial JavaScript reduction comes from loading JSZip only on download. The build also enforces an 80,000-byte gzip budget across initial JavaScript and CSS; the reference build is 70.6 KiB.
+The initial JavaScript reduction comes from loading JSZip only on download. The build also enforces an 80,000-byte gzip budget across initial JavaScript and CSS; the current build is 71.8 KiB.
+
+## Live Service Observation — 2026-08-08
+
+These are service observations from the in-app browser, not deterministic CPU benchmarks. The fixture used 20 Vincennes points, 20 Noisy–Champs/Géodata-area points, and a fixed seed.
+
+- Before the follow-up, an append-only rerun repeated the full rail setup and failed with a primary Overpass 504, adding no trips. The failure UI also exposed the upstream HTML body and retained the old run report.
+- With one bounded, documented backup endpoint, a cold 20-trip run completed by the first five-second observation. It reported no cache reuse (`metro path no`, `walking legs 0/40`).
+- The next 20-trip batch used the same point pools and completed in 325 ms. It reported `metro path yes` and `walking legs 40/40`, so it required no repeated Overpass, rail elevation, or walking-route work.
+- With 40 preview trips present, the Leaflet SVG contained 65 base paths including station circles and 20 editable point markers. Selecting one trip added exactly three highlighted route paths and completed the observed interaction in 325 ms.
 
 ## Performance Boundaries
 
@@ -37,10 +46,11 @@ The initial JavaScript reduction comes from loading JSZip only on download. The 
 - `scripts/benchmarks/panel.bench.ts` compares a full panel rebuild with the targeted progress patch.
 - `scripts/check-bundle-size.mjs` reads the production HTML entry graph and fails when initial JavaScript plus CSS exceeds budget.
 - `src/ui/previewSegments.ts` keeps base route geometry unique by shared-array identity; selection adds only the highlighted trip segments.
+- `src/lib/generationRouteCache.ts` bounds page-session metro setup and walking-leg reuse. Exact coordinates, endpoint, padding, snap distance, profile, and query version form the cache keys; reset/page reload clears the cache and failures are never cached.
 - Search uses a single Nominatim request at a time. Interactive searches are prioritized over queued reverse lookups and recent identical searches are cached, but live response time remains external.
 
 ## Remaining Bottlenecks
 
-- Repeated generation batches can still repeat Overpass/rail elevation setup and overlapping walking legs. A bounded, coordinate-keyed session route cache is the next high-impact network optimization.
 - Queued reverse lookups are not yet canceled after a point is moved again or deleted.
 - The sidebar still uses a full rebuild for structural data changes; the targeted progress and clock paths cover the known high-frequency cases.
+- The first cold metro run still depends on public Overpass and ORS availability. The configured default gets at most one sequential fallback to the documented global backup; broader failover would need explicit endpoint policy and health reporting.

@@ -1,4 +1,5 @@
 import { downloadZip } from "../lib/exportZip";
+import { createGenerationRouteCache } from "../lib/generationRouteCache";
 import { reverseGeocode, searchLocations } from "../lib/geocode";
 import { generateTrips } from "../lib/generator";
 import { newId } from "../lib/ids";
@@ -45,6 +46,7 @@ export function createApp(root: HTMLElement): void {
   }
 
   const store = createStateStore();
+  const generationRouteCache = createGenerationRouteCache();
   let mode: EditMode = "idle";
   let busy = false;
   let statusText = "";
@@ -664,6 +666,7 @@ export function createApp(root: HTMLElement): void {
 
     busy = true;
     statusText = "Generating trips...";
+    lastGenerationReport = null;
     const excludedPairKeys = generatedPairKeys();
     generationProgress = {
       phase: "setup",
@@ -684,6 +687,7 @@ export function createApp(root: HTMLElement): void {
         seed: state.generation.seed,
         excludedPairKeys,
         startingTripNumber: nextGeneratedTripNumber,
+        routeCache: generationRouteCache,
         onProgress: (update) => {
           applyGenerationProgress(update);
           if (generationProgress && !updateGenerationProgress(panelElement, generationProgress)) {
@@ -700,19 +704,20 @@ export function createApp(root: HTMLElement): void {
       generationProgress = {
         phase: "done",
         message: "Generation complete",
-        current: 1,
-        total: 1,
+        current: result.report.requestedTrips,
+        total: result.report.requestedTrips,
         percent: 100
       };
       statusText = `Generation complete: added ${newTrips.length} new trip${newTrips.length === 1 ? "" : "s"} (${generatedTrips.length} total).`;
     } catch (error) {
       generationProgress = {
-        phase: "done",
+        phase: "error",
         message: "Generation failed",
         current: 0,
-        total: 1,
+        total: state.generation.tripCount,
         percent: 0
       };
+      lastGenerationReport = null;
       statusText = error instanceof Error ? error.message : String(error);
     } finally {
       busy = false;
@@ -779,6 +784,7 @@ export function createApp(root: HTMLElement): void {
     }
     pointAddressTimers.clear();
     pointClockStates.clear();
+    generationRouteCache.clear();
     ensurePointClockTicker();
     store.reset();
     mode = "idle";

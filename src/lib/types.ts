@@ -97,6 +97,14 @@ export interface GenerationReport {
     uniquePairsUsed: number;
     maxPairReuse: number;
   };
+  reuseStats: {
+    metroPath: boolean;
+    walkingLegs: number;
+    walkingLegRequests: number;
+  };
+  serviceStats: {
+    overpassFallback: boolean;
+  };
 }
 
 export interface GenerationResult {

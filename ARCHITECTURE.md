@@ -17,6 +17,7 @@ Runtime entry: `src/main.ts` mounts `createApp` from `src/ui/app.ts`.
 - `src/ui/renderScheduler.ts`: microtask coalescing for synchronous UI invalidations.
 - `src/lib/stateStore.ts`: state creation, localStorage persistence, and normalization.
 - `src/lib/generator.ts`: trip generation pipeline.
+- `src/lib/generationRouteCache.ts`: bounded page-session reuse of successful metro setup and walking legs.
 - `src/lib/orsClient.ts`: ORS walking routes, retries, and elevation draping.
 - `src/lib/overpassClient.ts`: Overpass station and rail queries.
 - `src/lib/geocode.ts`: Nominatim-backed forward location search and reverse walk-point label lookup with serialized/rate-limited requests.
@@ -45,14 +46,16 @@ All loaded state is normalized through `stateStore.ts`. Invalid station selectio
 1. Validate ORS key and point pools.
 2. Build unused origin/destination point pairings, excluding pair keys already present in the generated-trip list.
 3. Split pairs into metro trips and driving trips. Any pair containing a `driving` point becomes a direct driving trip.
-4. For metro trips, fetch rail ways from Overpass, build the rail graph, snap stations to rail nodes, compute the shortest rail path, and drape the rail path with ORS elevation.
-5. For metro trips, fetch walking legs from ORS with retry/backoff.
+4. For metro trips, reuse a matching page-session rail/elevation path when available; otherwise fetch rail ways from Overpass, build the rail graph, snap stations to rail nodes, compute the shortest rail path, and drape it with ORS elevation.
+5. For metro trips, reuse successful coordinate-matched walking legs and request only misses from ORS with retry/backoff.
 6. For driving trips, fetch ORS driving alternatives once per unique point pair and randomly choose an available alternative per generated trip.
 7. Assemble trip geometries and serialize one enriched GPX file per generated trip.
 
 Walking and driving directions request elevation directly from ORS. Rail elevation is added through ORS line draping because OSM rail geometry has no elevation.
 
 Generated trips are kept in an in-memory UI list for the current page session. New generation runs append successful trips to that list and do not remove older successful routes. The app derives map previews and ZIP downloads from the full generated-trip list.
+
+The app-owned generation route cache is also page-session-only. It is bounded, cleared by full reset/page reload, and keyed by exact coordinates plus routing/query parameters so moved points or changed station/service settings miss naturally. Failed requests and invalid geometry are not cached. The default Overpass endpoint gets at most one sequential retry on the currently documented global backup after a network, 429, or 5xx failure; custom endpoints do not silently fall back.
 
 ## GPX Export Contract
 
@@ -93,6 +96,7 @@ Forward searches and reverse point lookups share one rate limiter to respect the
 - Preview geometry is deduplicated by shared coordinate-array identity. The selected trip is drawn once more as a highlighted overlay.
 - Built rail graphs include a spatial lookup for station snapping. Shortest-path state is allocated lazily, and path reconstruction is linear.
 - JSZip is loaded only when the user downloads a ZIP, keeping it out of the initial JavaScript payload.
+- Repeated generation batches reuse successful metro setup and walking legs through a bounded app-owned cache; the completion report makes reuse visible.
 
 Use `npm run benchmark` for deterministic CPU/DOM measurements and `npm run bundle:check` for the initial-payload budget. Treat live ORS, Overpass, tile, and Nominatim timings as service observations, not app CPU benchmarks. See `PERFORMANCE.md`.
 

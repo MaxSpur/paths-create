@@ -117,6 +117,14 @@ describe("renderPanel", () => {
         pairingStats: {
           uniquePairsUsed: 0,
           maxPairReuse: 0
+        },
+        reuseStats: {
+          metroPath: false,
+          walkingLegs: 0,
+          walkingLegRequests: 0
+        },
+        serviceStats: {
+          overpassFallback: false
         }
       },
       canDownload: false,
@@ -299,7 +307,24 @@ describe("renderPanel", () => {
     const model: PanelModel = {
       mode: "idle",
       busy: false,
-      stations: [],
+      stations: [
+        {
+          id: "origin-station",
+          name: "Origin station",
+          lat: 1.5,
+          lon: 2.5,
+          radiusM: 500,
+          walkPoints: [{ id: "origin", lat: 1, lon: 2, label: "Resolved origin" }]
+        },
+        {
+          id: "destination-station",
+          name: "Destination station",
+          lat: 3.5,
+          lon: 4.5,
+          radiusM: 500,
+          walkPoints: [{ id: "destination", lat: 3, lon: 4, label: "Resolved destination" }]
+        }
+      ],
       activeStationId: null,
       selectedPointId: null,
       selectedOriginStationId: null,
@@ -333,6 +358,7 @@ describe("renderPanel", () => {
 
     expect(container.querySelector(".trips-table")).not.toBeNull();
     expect(container.querySelector("tr[data-trip-id='trip-1']")?.className).toContain("is-selected");
+    expect(container.querySelector(".trip-label")?.textContent).toBe("Resolved origin -> Resolved destination");
 
     container.querySelector<HTMLElement>("tr[data-trip-id='trip-1']")?.click();
     container.querySelector<HTMLButtonElement>("[data-trip-delete]")?.click();

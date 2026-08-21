@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createGenerationRouteCache } from "../lib/generationRouteCache";
 import { generateTrips } from "../lib/generator";
 import type { StationRecord } from "../lib/types";
 
@@ -165,6 +166,63 @@ describe("generateTrips integration", () => {
     expect(result.report.generatedTrips).toBe(0);
     expect(result.report.failures[0]?.code).toBe("NO_RAIL_PATH");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses successful metro setup and walking legs across generation batches", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = String(input);
+      if (url.includes("overpass")) {
+        return createConnectedRailResponse();
+      }
+      if (url.includes("/elevation/line")) {
+        const body = JSON.parse(String(init?.body));
+        return createElevationResponse({ coordinates: body.geometry.coordinates });
+      }
+      if (url.includes("openrouteservice")) {
+        const body = JSON.parse(String(init?.body));
+        return createOrsResponse({
+          coordinates: body.coordinates.map(([lon, lat]: [number, number]) => [lon, lat, 100])
+        });
+      }
+      throw new Error(`Unhandled URL: ${url}`);
+    });
+    const routeCache = createGenerationRouteCache();
+
+    const first = await generateTrips({
+      orsApiKey: "key",
+      overpassUrl: "https://overpass.test/interpreter",
+      originStation,
+      destinationStation,
+      tripCount: 2,
+      seed: 123,
+      routeCache
+    });
+    const callsAfterFirstBatch = fetchMock.mock.calls.length;
+
+    const second = await generateTrips({
+      orsApiKey: "key",
+      overpassUrl: "https://overpass.test/interpreter",
+      originStation,
+      destinationStation,
+      tripCount: 2,
+      seed: 123,
+      excludedPairKeys: first.trips.map((trip) => trip.pairKey),
+      routeCache
+    });
+
+    expect(first.report.generatedTrips).toBe(2);
+    expect(first.report.reuseStats).toEqual({
+      metroPath: false,
+      walkingLegs: 0,
+      walkingLegRequests: 4
+    });
+    expect(second.report.generatedTrips).toBe(2);
+    expect(second.report.reuseStats).toEqual({
+      metroPath: true,
+      walkingLegs: 4,
+      walkingLegRequests: 4
+    });
+    expect(fetchMock.mock.calls).toHaveLength(callsAfterFirstBatch);
   });
 
   it("uses direct driving routes for pairs containing driving-mode points", async () => {

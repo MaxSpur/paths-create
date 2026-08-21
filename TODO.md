@@ -4,9 +4,7 @@ Keep this as the active queue. Completed chronology belongs in Git history, not 
 
 ## Reliability And External Services
 
-- [ ] Add Overpass mirror presets and bounded fallback sequencing, with visible endpoint/failure reporting.
 - [ ] Cancel or coalesce queued reverse-geocode work when a point is moved again or deleted; explicit location search must remain prioritized without exceeding the shared Nominatim rate limit.
-- [ ] Add a bounded session route cache keyed by coordinates and routing profile so later generation batches can reuse unchanged rail setup and walking legs.
 
 ## Data And Workflow
 

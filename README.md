@@ -1,177 +1,87 @@
 # Origin-Destination Creator
 
-Origin-Destination Creator is a browser-only tool for building synthetic transit-like GPX tracks for testing, demos, and map visualizations.
+Create synthetic origin-to-destination GPX trips from a browser-based map. Build reusable station access-point pools, combine walking with OpenStreetMap rail geometry, or switch individual points to direct driving routes.
 
-Live app:
-[https://www.maximspur.com/paths-create/](https://www.maximspur.com/paths-create/)
+**[Open the live app](https://www.maximspur.com/paths-create/)**
 
-It lets you define origin and destination stations, build walking-access point pools around them, and generate complete trips made of:
+The app runs entirely in the browser. Route generation requires your own [openrouteservice API key](https://openrouteservice.org/dev/); there is no project backend or account system.
 
-1. a walking approach to the origin station,
-2. a rail segment between the two stations based on OpenStreetMap data,
-3. a walking exit from the destination station.
+## Highlights
 
-Individual points can also be switched to direct driving mode. Any generated pair containing a driving-mode point uses an ORS driving route directly between the paired points instead of the walking + rail + walking pipeline.
+- Search for locations and add nearby rail stations from OpenStreetMap.
+- Define a radius around each station and add access points manually or at random.
+- Choose metro or direct-driving behavior for each access point.
+- Generate seeded, non-repeating batches of origin/destination pairs.
+- Review and highlight generated routes directly on the map.
+- Export one enriched GPX file per trip in a single ZIP archive.
+- Keep station data and settings in the current browser profile.
 
-The generated trips are exported as GPX files inside a ZIP archive, with elevation included when available from openrouteservice. The GPX files include explicit transport-leg metadata in a custom `odc` XML namespace; see [GPX_EXPORT.md](GPX_EXPORT.md).
+## Create A Trip Set
 
-## What You Can Do With It
+1. Open the [live app](https://www.maximspur.com/paths-create/) and paste your ORS key into **Settings**.
+2. Search for an area, or move the map and use **Find nearby stations at map center**.
+3. Add at least two stations, then mark one as the origin and one as the destination.
+4. Set each station's radius and make it active to add access points. Points can be placed on the map or created with **Generate random points**.
+5. Leave a point in metro mode (`M`) for a walking–rail–walking trip, or switch it to driving mode (`D`) for a direct road route. A pair uses driving if either endpoint is set to `D`.
+6. Choose a trip count and optional seed, then select **Generate**.
+7. Inspect routes under **Generated Trips** and select **Download GPX ZIP** when the set is ready.
 
-- Select a collection of stations on a Leaflet map.
-- Search for a location and choose from ranked candidate results before creating or finding stations.
-- Assign each station a walking-access radius from 5 m to 5 km.
-- Add walking points manually by clicking on the map, or generate random points inside a station radius.
-- Toggle individual points between metro mode and direct driving mode.
-- Set origin and destination stations for a generation run.
-- Generate multiple trips while rotating through available point pairs to reduce repetition.
-- Keep generated trips in a list, select one to highlight it on the map, and delete individual trips or the whole list.
-- Export the result as GPX files for use in route visualization, testing, demos, or import into other tools.
+Later generation runs append unused point pairs instead of replacing successful trips. The completion report shows failures and any route work reused from the current session.
 
-## How To Use It
+### Map Editing
 
-Use the app in this order:
+- **Idle** is the safe mode for inspecting the map.
+- **Map click: add station** creates a station outside existing station radii.
+- **Map click: add point** adds a point inside the active station's radius. Select an existing point first to move it with the next valid map click.
+- Selecting another station or point updates what can be edited. `Delete` or `Backspace` removes the selected point.
 
-1. Open the app and move the map to the city or area you want to work in.
-   Use the search field in the top-right of the map when you want to jump directly to a place. The app shows candidate results, biased toward the currently visible map area.
-   The `Find nearby stations at map center` action uses the current map center, so it helps to pan/zoom roughly to the right area first.
-2. In **Settings**, paste your openrouteservice key into `ORS API Key`.
-   Leave the default `Overpass URL` alone unless you intentionally want to use a different Overpass instance.
-3. Build your station library in **Stations**.
-   You have two ways to do this:
-   - click `Map click: add station`, then click the map outside any existing station radius,
-   - or click `Find nearby stations at map center`, choose a candidate in the dropdown, and click `Add selected`.
-4. For each station card:
-   - rename the station if needed,
-   - set the station radius with the slider,
-   - use `Set active` when you want to edit that station’s point pool.
-   The station radius matters: it controls both random point generation and where point add/move clicks are allowed.
-5. Add walking-access points for the active station in **Active Station Points**.
-   You can do this in two ways:
-   - manual points: click `Map click: add point`, then click inside the active station radius,
-   - random points: enter `Random count`, then click `Generate random points`.
-   Random points always use the active station’s current radius.
-6. Edit the active station’s points until the pool looks right.
-   - click a point on the map or in the list to select it,
-   - with `Map click: add point` mode active, click somewhere else inside the active station radius to move the selected point,
-   - click outside the active station radius to deselect the point,
-   - use the `M` / `D` button to choose whether that point uses the metro pipeline or direct driving when paired,
-   - use `Delete` in the list, or `Delete` / `Backspace` on the keyboard, to remove the selected point.
-   Point labels are reverse-geocoded automatically, so new or moved points may briefly show as resolving before their address appears.
-7. Choose the trip endpoints.
-   Use either the `Origin station` / `Destination station` dropdowns or the `Set origin` / `Set destination` buttons in each station card.
-   For useful output, both the origin and destination stations should have at least one point; more points give the generator more combinations and reduce repetition.
-   If either point in a generated origin/destination pair is set to `D`, that trip is generated as a direct driving route. Otherwise, it uses the metro pipeline. Metro points are orange on the map; driving points are purple.
-8. Generate trips in **Generate Trips**.
-   - set `Trip count`,
-   - optionally set `Seed` if you want reproducible results,
-   - click `Generate`.
-   The progress box shows the current phase and ends with a short generation report.
-   Later generation runs only request origin/destination point pairs that are not already in the generated-trip list, then append successful new trips to that list.
-9. Review and export.
-   - generated routes are drawn on the map as a preview,
-   - select a row in **Generated Trips** to highlight and focus that route,
-   - delete individual rows, or use `Delete all` to clear the generated-trip list without deleting stations or points,
-   - `Download GPX ZIP` becomes useful after at least one successful generated trip and downloads one GPX file per trip in the list.
+## GPX Output
 
-### Important Editing Rules
+A metro trip normally contains three named tracks: walking to the origin station, rail travel, and walking from the destination station. A driving trip contains one direct-driving track. Elevation is included when ORS provides it.
 
-- Clicking inside a station radius activates that station.
-- Setting a station as active from the sidebar refocuses the map to show that station and its full radius.
-- In `Map click: add point` mode, clicks inside the active station radius add a point or move the selected point.
-- Clicking outside the active station radius deselects the selected point, or activates another station if its radius was hit.
-- `Idle` mode is the safe neutral mode when you want to inspect the map without adding or moving things.
+Files use standard GPX 1.1 plus an `odc` namespace describing transport mode, segment role, station and point identifiers, labels, and structured addresses. The complete format is documented in [GPX_EXPORT.md](GPX_EXPORT.md).
 
-## Quick Start
+## Privacy And Saved Data
 
-### Prerequisites
+- The ORS key, stations, access points, and settings are stored in this browser origin's `localStorage`.
+- The key is sent directly from the browser to openrouteservice when the app requests directions or elevation. Do not use the app in a shared browser profile if the key must remain private from other local users.
+- Coordinates are sent to the external services needed for search, rail data, routing, and map tiles. See [SOURCES.md](SOURCES.md) for the service inventory.
+- Generated trips and the route-reuse cache last only for the current page session. Reloading clears them but keeps saved stations and settings.
+- **Reset all saved data** clears the app's persisted local state. Browser data is tied to the exact host and port, so a different origin has a separate state.
 
-- Node.js 24 LTS. The current tested version is pinned in `.node-version`.
-- npm 11.12.1 or newer.
+## Service Limits
 
-### Install and Run
+- ORS, Overpass, Nominatim, and map-tile availability and usage limits are outside the app's control.
+- Rail routing follows OSM geometry; it does not use schedules, service calendars, or GTFS data.
+- Nearby-station discovery is heuristic, so its results may need manual curation.
+
+## Run Locally
+
+Requires Node.js 24 LTS and npm 11.12.1 or newer.
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Open [http://127.0.0.1:5198/](http://127.0.0.1:5198/). The fixed strict port preserves origin-scoped saved data; if it is occupied, Vite stops and reports the collision instead of silently choosing a different origin.
+Open [http://127.0.0.1:5198/](http://127.0.0.1:5198/). The fixed port prevents this origin's saved data from appearing to disappear because Vite silently chose another port.
 
-## Getting an openrouteservice API Key
-
-This app uses openrouteservice for directions and elevation. Create or reveal a key in the [ORS dashboard](https://openrouteservice.org/dev/), then paste it into `ORS API Key` in Settings. The key stays in this browser origin's localStorage.
-
-Account flows and quotas can change; use the [ORS FAQ](https://openrouteservice.org/faq/) and the project [source registry](SOURCES.md) rather than relying on copied login-screen text.
-
-## What The App Produces
-
-Each generated trip is exported as GPX and contains:
-
-- one named GPX track per transport leg,
-- explicit `<type>` values: `walking`, `metro`, or `driving`,
-- `odc:*` metadata for route mode, segment role, station IDs, point IDs, point modes, labels, and structured address components when available,
-- elevation in GPX track points when ORS provides it.
-
-The download is a ZIP archive containing one GPX file per generated trip.
-
-## How It Works
-
-- Station and point data are managed entirely in the browser.
-- Nearby station candidates and rail geometries come from Overpass / OpenStreetMap.
-- Walking legs and elevation come from openrouteservice.
-- Direct driving routes and driving alternatives come from openrouteservice.
-- The rail leg is computed from OSM rail graph data and then elevation-draped through ORS.
-- State is persisted locally in the browser via `localStorage`.
-- Saved state belongs to the exact browser origin. Changing the host or port shows a separate state.
-- Generated trip previews are session-local and are cleared by page reloads or `Delete all`.
-
-## Privacy And Local Data
-
-- This app has no backend.
-- Your ORS key is stored locally in your browser because the app runs entirely client-side.
-- Station definitions, point pools, and map UI state are also stored locally in your browser.
-
-## Development
-
-### Verify
+Before contributing or deploying a change, run:
 
 ```bash
 npm run check
 ```
 
-This runs the tests, production TypeScript/Vite build, and initial bundle-size budget.
+This runs the automated tests, production build, and initial bundle-size budget. `npm run benchmark` runs the deterministic performance suite.
 
-### Benchmark
+## Project Documentation
 
-```bash
-npm run benchmark
-```
-
-See [PERFORMANCE.md](PERFORMANCE.md) for the deterministic Vincennes-to-Géodata fixture and current reference results.
-
-### Preview
-
-```bash
-npm run preview
-```
-
-Open [http://127.0.0.1:4198/](http://127.0.0.1:4198/).
-
-### Deploy
-
-Pull requests run `.github/workflows/check.yml`. Pushes to `master` run the same verification gate, build `dist/`, and deploy through `.github/workflows/deploy.yml`. Local work is not published until it is committed and pushed.
-
-## Current Limits
-
-- The app depends on external ORS and Overpass availability, quotas, and rate limits.
-- The rail middle leg is geometry-based, not timetable-based.
-- Station discovery from OSM is heuristic and may include results you want to curate manually.
+- [ARCHITECTURE.md](ARCHITECTURE.md) — runtime structure, behavior, and deployment boundaries.
+- [PERFORMANCE.md](PERFORMANCE.md) — benchmark method, current results, and remaining bottlenecks.
+- [GPX_EXPORT.md](GPX_EXPORT.md) — exported-file contract.
+- [SOURCES.md](SOURCES.md) — external service and infrastructure references.
+- [TODO.md](TODO.md) — active engineering backlog.
 
 ## License
 
-This project is released under the MIT License.
-See [LICENSE](LICENSE).
-
-## Sources
-
-External service, runtime, and deployment references are maintained in [SOURCES.md](SOURCES.md).
+[MIT](LICENSE)

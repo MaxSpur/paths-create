@@ -1,4 +1,5 @@
 import { computeBbox } from "./geo";
+import type { GenerationRouteCache } from "./generationRouteCache";
 import { newId } from "./ids";
 import { fetchRailWays } from "./overpassClient";
 import { generateRoundRobinPairs } from "./pairing";
@@ -34,6 +35,7 @@ export interface GenerateTripsInput {
   maxSnapDistanceM?: number;
   railPaddingM?: number;
   onProgress?: (update: GenerationProgressUpdate) => void;
+  routeCache?: GenerationRouteCache;
 }
 
 function stationPoint(station: StationRecord): LatLon {
@@ -64,27 +66,71 @@ function pointLatLon(point: WalkPoint): LatLon {
   return { lat: point.lat, lon: point.lon };
 }
 
+function coordinateKey(point: LatLon): string {
+  return JSON.stringify([point.lat, point.lon]);
+}
+
+function walkingLegCacheKey(from: LatLon, to: LatLon): string {
+  return `walk:v1|foot-walking|elevation=1|${coordinateKey(from)}|${coordinateKey(to)}`;
+}
+
+function metroPathCacheKey(
+  overpassUrl: string,
+  origin: LatLon,
+  destination: LatLon,
+  railPaddingM: number,
+  maxSnapDistanceM: number
+): string {
+  return [
+    "metro:v1",
+    overpassUrl.trim(),
+    coordinateKey(origin),
+    coordinateKey(destination),
+    Math.round(railPaddingM),
+    Math.round(maxSnapDistanceM),
+    "rail=subway,light_rail,rail"
+  ].join("|");
+}
+
 async function buildWalkLegs(
   orsClient: OrsClient,
   pointList: WalkPoint[],
   toStation: LatLon,
   fromStation = false,
-  onProgress?: (completed: number, total: number) => void
-): Promise<Map<string, LonLat[]>> {
-  const requests = pointList.map((point) => ({
-    id: point.id,
-    from: fromStation ? toStation : { lat: point.lat, lon: point.lon },
-    to: fromStation ? { lat: point.lat, lon: point.lon } : toStation
-  }));
-
-  const results = await orsClient.getManyWalkingRoutes(requests, 2, onProgress);
+  onProgress?: (completed: number, total: number) => void,
+  routeCache?: GenerationRouteCache
+): Promise<{ routes: Map<string, LonLat[]>; reusedCount: number }> {
   const map = new Map<string, LonLat[]>();
+  const requests = pointList
+    .map((point) => ({
+      id: point.id,
+      from: fromStation ? toStation : { lat: point.lat, lon: point.lon },
+      to: fromStation ? { lat: point.lat, lon: point.lon } : toStation
+    }))
+    .filter((request) => {
+      const cached = routeCache?.getWalkingLeg(walkingLegCacheKey(request.from, request.to));
+      if (!cached) return true;
+      map.set(request.id, cached);
+      return false;
+    });
+
+  const cachedCount = map.size;
+  onProgress?.(cachedCount, pointList.length);
+  const results = await orsClient.getManyWalkingRoutes(
+    requests,
+    2,
+    (completed) => onProgress?.(cachedCount + completed, pointList.length)
+  );
   for (const result of results) {
     if (result.coordinates && result.coordinates.length > 1) {
       map.set(result.id, result.coordinates);
+      const request = requests.find((item) => item.id === result.id);
+      if (request) {
+        routeCache?.setWalkingLeg(walkingLegCacheKey(request.from, request.to), result.coordinates);
+      }
     }
   }
-  return map;
+  return { routes: map, reusedCount: cachedCount };
 }
 
 async function buildDrivingRoutes(
@@ -136,7 +182,9 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         generatedTrips: 0,
         failedTrips: input.tripCount,
         failures: [{ code: "MISSING_ORS_KEY", message: "ORS API key is required." }],
-        pairingStats: { uniquePairsUsed: 0, maxPairReuse: 0 }
+        pairingStats: { uniquePairsUsed: 0, maxPairReuse: 0 },
+        reuseStats: { metroPath: false, walkingLegs: 0, walkingLegRequests: 0 },
+        serviceStats: { overpassFallback: false }
       }
     };
   }
@@ -154,7 +202,9 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
             message: "Both origin and destination stations must have at least one walk point."
           }
         ],
-        pairingStats: { uniquePairsUsed: 0, maxPairReuse: 0 }
+        pairingStats: { uniquePairsUsed: 0, maxPairReuse: 0 },
+        reuseStats: { metroPath: false, walkingLegs: 0, walkingLegRequests: 0 },
+        serviceStats: { overpassFallback: false }
       }
     };
   }
@@ -188,69 +238,133 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   const needsMetro = metroPairs.length > 0;
   let metroUnavailable: GenerationFailure | null = null;
   let metroCoords: LonLat[] = [];
+  let reusedMetroSetup = false;
+  let reusedMetroPath = false;
+  let reusedWalkingLegs = 0;
+  let usedOverpassFallback = false;
 
   if (needsMetro) {
     const railPaddingM = input.railPaddingM ?? 1800;
-    emitProgress({
-      phase: "setup",
-      message: "Fetching rail network",
-      current: 2,
-      total: 6
-    });
-    const bbox = computeBbox([stationPoint(input.originStation), stationPoint(input.destinationStation)], railPaddingM);
-
-    const railData = await fetchRailWays(input.overpassUrl, bbox);
-    emitProgress({
-      phase: "setup",
-      message: "Building rail graph",
-      current: 3,
-      total: 6
-    });
-    const graph = buildRailGraph(railData);
-
     const maxSnapDistanceM = input.maxSnapDistanceM ?? 200;
-    const originNode = snapToNearestNode(graph, stationPoint(input.originStation), maxSnapDistanceM);
-    const destinationNode = snapToNearestNode(graph, stationPoint(input.destinationStation), maxSnapDistanceM);
-
-    if (originNode === null || destinationNode === null) {
-      metroUnavailable = {
-        code: "RAIL_SNAP_FAILED",
-        message: "Unable to snap one or both stations to nearby rail graph nodes."
-      };
-    } else {
+    const metroCacheKey = metroPathCacheKey(
+      input.overpassUrl,
+      stationPoint(input.originStation),
+      stationPoint(input.destinationStation),
+      railPaddingM,
+      maxSnapDistanceM
+    );
+    const cachedMetroSetup = input.routeCache?.getMetroSetup(metroCacheKey);
+    if (cachedMetroSetup) {
+      reusedMetroSetup = true;
+      metroCoords = cachedMetroSetup.elevatedCoordinates ?? cachedMetroSetup.railCoordinates;
+      reusedMetroPath = cachedMetroSetup.elevatedCoordinates !== undefined;
       emitProgress({
         phase: "setup",
-        message: "Computing metro path",
-        current: 4,
+        message: reusedMetroPath
+          ? "Reusing metro path from this session"
+          : "Reusing rail path; refreshing elevation",
+        current: reusedMetroPath ? 5 : 4,
         total: 6
       });
-      const railNodePath = shortestPath(graph, originNode, destinationNode);
-      if (!railNodePath || railNodePath.length < 2) {
+    }
+
+    if (!cachedMetroSetup) {
+      emitProgress({
+        phase: "setup",
+        message: "Fetching rail network",
+        current: 2,
+        total: 6
+      });
+      const bbox = computeBbox(
+        [stationPoint(input.originStation), stationPoint(input.destinationStation)],
+        railPaddingM
+      );
+
+      const railData = await fetchRailWays(input.overpassUrl, bbox, {
+        onFallback: () => {
+          usedOverpassFallback = true;
+          emitProgress({
+            phase: "setup",
+            message: "Primary Overpass endpoint unavailable; trying the documented backup",
+            current: 2,
+            total: 6
+          });
+        }
+      });
+      emitProgress({
+        phase: "setup",
+        message: "Building rail graph",
+        current: 3,
+        total: 6
+      });
+      const graph = buildRailGraph(railData);
+
+      const originNode = snapToNearestNode(graph, stationPoint(input.originStation), maxSnapDistanceM);
+      const destinationNode = snapToNearestNode(graph, stationPoint(input.destinationStation), maxSnapDistanceM);
+
+      if (originNode === null || destinationNode === null) {
         metroUnavailable = {
-          code: "NO_RAIL_PATH",
-          message: "No rail path could be found between selected stations."
+          code: "RAIL_SNAP_FAILED",
+          message: "Unable to snap one or both stations to nearby rail graph nodes."
         };
       } else {
-        metroCoords = nodePathToCoordinates(graph, railNodePath);
+        emitProgress({
+          phase: "setup",
+          message: "Computing metro path",
+          current: 4,
+          total: 6
+        });
+        const railNodePath = shortestPath(graph, originNode, destinationNode);
+        if (!railNodePath || railNodePath.length < 2) {
+          metroUnavailable = {
+            code: "NO_RAIL_PATH",
+            message: "No rail path could be found between selected stations."
+          };
+        } else {
+          metroCoords = nodePathToCoordinates(graph, railNodePath);
+          input.routeCache?.setMetroSetup(metroCacheKey, { railCoordinates: metroCoords });
+        }
       }
     }
   }
 
   emitProgress({
     phase: "setup",
-    message: needsMetro ? "Draping metro path elevation" : "Skipping metro setup",
+    message: needsMetro
+      ? reusedMetroPath
+        ? "Reusing metro path from this session"
+        : "Draping metro path elevation"
+      : "Skipping metro setup",
     current: 5,
     total: 6
   });
   if (needsMetro && !metroUnavailable && metroCoords.length > 0) {
-    try {
-      metroCoords = await orsClient.drapeLine(metroCoords);
-    } catch (error) {
-      addFailure(
-        failures,
-        "METRO_ELEVATION_FAILED",
-        `Could not drape metro path elevation: ${getErrorMessage(error)}`
-      );
+    if (!reusedMetroPath) {
+      try {
+        const railCoordinates = metroCoords;
+        metroCoords = await orsClient.drapeLine(metroCoords);
+        const railPaddingM = input.railPaddingM ?? 1800;
+        const maxSnapDistanceM = input.maxSnapDistanceM ?? 200;
+        input.routeCache?.setMetroSetup(
+          metroPathCacheKey(
+            input.overpassUrl,
+            stationPoint(input.originStation),
+            stationPoint(input.destinationStation),
+            railPaddingM,
+            maxSnapDistanceM
+          ),
+          {
+            railCoordinates,
+            elevatedCoordinates: metroCoords
+          }
+        );
+      } catch (error) {
+        addFailure(
+          failures,
+          "METRO_ELEVATION_FAILED",
+          `Could not drape metro path elevation: ${getErrorMessage(error)}`
+        );
+      }
     }
   }
 
@@ -278,7 +392,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   let walkInMap = new Map<string, LonLat[]>();
   let walkOutMap = new Map<string, LonLat[]>();
   if (metroPairs.length > 0 && !metroUnavailable) {
-    [walkInMap, walkOutMap] = await Promise.all([
+    const [walkInResult, walkOutResult] = await Promise.all([
       buildWalkLegs(
         orsClient,
         uniqueOrigins,
@@ -287,7 +401,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         (completed) => {
           walkInCompleted = completed;
           emitWalkingProgress("Walking to origin station");
-        }
+        },
+        input.routeCache
       ),
       buildWalkLegs(
         orsClient,
@@ -297,9 +412,13 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         (completed) => {
           walkOutCompleted = completed;
           emitWalkingProgress("Walking from destination station");
-        }
+        },
+        input.routeCache
       )
     ]);
+    walkInMap = walkInResult.routes;
+    walkOutMap = walkOutResult.routes;
+    reusedWalkingLegs = walkInResult.reusedCount + walkOutResult.reusedCount;
   }
 
   const totalDrivingRequests = new Set(drivingPairs.map((pair) => pair.pairKey)).size;
@@ -455,8 +574,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   emitProgress({
     phase: "done",
     message: "Generation complete",
-    current: 1,
-    total: 1
+    current: input.tripCount,
+    total: input.tripCount
   });
 
   return {
@@ -469,6 +588,14 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       pairingStats: {
         uniquePairsUsed: pairings.uniquePairsUsed,
         maxPairReuse: pairings.maxPairReuse
+      },
+      reuseStats: {
+        metroPath: reusedMetroSetup,
+        walkingLegs: reusedWalkingLegs,
+        walkingLegRequests: totalWalkRequests
+      },
+      serviceStats: {
+        overpassFallback: usedOverpassFallback
       }
     }
   };

@@ -48,5 +48,8 @@
 - Use `npm ci` to reproduce the lockfile, including platform optional dependencies. Do not delete the lockfile to repair a missing Rollup/Rolldown package.
 - Keep the fixed strict dev/preview ports. Silent port fallback changes the localStorage origin and makes saved state appear missing.
 - Retry only network failures, HTTP 429, and 5xx responses. Authentication and other non-retriable 4xx errors must fail once and remain visible.
+- Do not surface upstream HTML error bodies. Translate service status into a short actionable message at the client boundary.
+- Keep public-service fallback bounded and sequential. The configured default may try one documented global backup after a transient failure; never override a custom endpoint silently.
+- Cache only successful route geometry in page memory. Key metro setup and walking legs by exact ordered coordinates plus every routing/query parameter that can change output; never key only by mutable point IDs.
 - Use warmup plus repeated median/p95 measurements for performance work. Keep live service latency separate from deterministic CPU/DOM benchmarks.
 - Lazy-load features that are not needed at startup, and enforce the initial gzip budget after every production build.
