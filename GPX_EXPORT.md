@@ -29,29 +29,11 @@ Each GPX track contains one `<trkseg>`. The full segment metadata is attached to
 The GPX `<metadata>` block contains:
 
 - standard `<name>`, `<desc>`, and `<time>`,
-- `<odc:trip id="..." routeMode="metro|driving" schemaVersion="1" segmentCount="...">`,
+- `<extensions><odc:trip id="..." routeMode="metro|driving" schemaVersion="1" segmentCount="...">`, with optional `pairKey`,
 - one origin and one destination `<odc:station>`,
 - one origin and one destination `<odc:point>`.
 
-Stations include:
-
-- `role`,
-- `id`,
-- `name`,
-- `lat`,
-- `lon`,
-- `radiusM`.
-
-Points include:
-
-- `role`,
-- `id`,
-- `tripMode`,
-- `lat`,
-- `lon`,
-- `addressStatus`,
-- optional `<odc:label>`,
-- optional structured `<odc:address>`.
+Stations carry `role`, `id`, `name`, `lat`, `lon`, `radiusM`. Points carry `role`, `id`, `tripMode`, `lat`, `lon`, `addressStatus`, with optional `<odc:label>` and structured `<odc:address>`.
 
 Structured addresses preserve the Nominatim `display_name` and address fields when available:
 

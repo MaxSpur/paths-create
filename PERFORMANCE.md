@@ -1,56 +1,47 @@
 # Performance
 
-This is the current benchmark contract and one reference comparison, not a chronological log. Refresh the table when a later change intentionally moves a budget or hot path.
+## Measurement contract
 
-## Commands And Fixture
+Run `npm run benchmark` for offline rail-graph and panel-DOM fixtures. Establish a baseline before editing; use the same workload/environment, warmup and repeated measurements, reporting median/p95 where practical. Keep correctness checks alongside timing and separate live-service latency from app CPU/DOM work.
 
-```bash
-npm run benchmark
-npm run check
-```
+- `scripts/benchmarks/railGraph.bench.ts`: station snapping and shortest paths on 40k nodes.
+- `scripts/benchmarks/panel.bench.ts`: full render versus progress patch.
+- `npm run check`: tests, build and bundle budget.
+- `scripts/check-bundle-size.mjs`: sums gzip bytes of JS/CSS directly referenced by `dist/index.html`, capped at 80,000 bytes. It does not recursively traverse imports; revisit coverage if chunk loading changes.
 
-Benchmarks are offline and deterministic. The UI smoke fixture uses an origin area around Vincennes (`48.847, 2.439`) and a destination near Géodata Paris in Champs-sur-Marne (`48.8411, 2.5874`). Automated tests mock public services; the in-app browser is used for live search/layout observation.
+## Runtime constraints
 
-Report repeated medians and p95 where practical. Do not mix ORS, Overpass, Nominatim, or tile-server latency into CPU/DOM results.
+- Coalesce synchronous UI invalidations into a microtask; patch progress and clock DOM.
+- Invalidate station, active-point and preview layers independently. Map-view persistence alone must not rebuild them.
+- Metro trips share coordinate arrays: deduplicate base preview segments by identity, then add one selected-trip overlay.
+- Rail graphs use spatial lookup for snapping, lazy shortest-path state and linear path reconstruction.
+- Load JSZip on download, outside the initial payload.
+- `generationRouteCache.ts` bounds page-session reuse to 16 metro setups and 512 walking legs. Keys include exact ordered coordinates and applicable endpoint/profile/query parameters. Reset/reload clears it. Cache valid geometry only; successful rail geometry survives an elevation failure so elevation can be retried later.
+- Search shares the Nominatim limiter; priority/cache improvements cannot guarantee live response time.
 
-## Reference Comparison — 2026-08-08
+## Browser acceptance fixture
 
-Environment: macOS arm64, Node 26.3.0, npm 11.16.0. The dependency baseline used Vitest 2.1.9/Vite 5.4.21; the optimized run uses Vitest 4.1.10/Vite 8.2.1.
+Reuse a small state around Vincennes (`48.847, 2.439`) and Géodata Paris in Champs-sur-Marne (`48.8411, 2.5874`). Check only flows affected by the change:
 
-| Scenario | Before | After | Result |
-| --- | ---: | ---: | ---: |
-| 40k-node rail graph, snap two stations | 4.652 ms mean | 0.0446 ms mean | 99.0% lower |
-| 40k-node graph, path across one connected row | 3.094 ms mean | 0.0250 ms mean | 99.2% lower |
-| 90k-node line, worst-case shortest path | 659 ms median | 24.86 ms median | 96.2% lower |
-| 250-point/250-trip generation progress | 86.67 ms full render | 1.72 ms targeted patch | 50.4× faster |
-| 20×20 metro preview, no selected trip | 1,200 polylines | 41 unique polylines | 96.6% fewer |
-| Walking request after ORS 401 | 4 requests | 1 request | 75% fewer |
-| Driving-alternatives request after ORS 401 | 8 requests | 1 request | 87.5% fewer |
-| Initial JavaScript | 93.73 kB gzip | 65.45 kB gzip | 30.2% lower |
-| Test suite | 40 tests, ~2.83 s | 53 tests, ~1.63 s | more coverage, ~42% shorter |
+- Search both names, select the intended French result, verify map focus and result dismissal; check narrow-screen search/zoom controls.
+- For generation, compare cold and warm append batches with a fixed seed and unchanged point pools. Record trip counts, visible progress/report, route reuse and failures.
+- For previews, compare base Leaflet layer counts and selection overlays as trip count grows. Pure segment counts do not establish rendered layer counts.
 
-The initial JavaScript reduction comes from loading JSZip only on download. The build also enforces an 80,000-byte gzip budget across initial JavaScript and CSS; the current build is 71.8 KiB.
+Automated fixtures mock services. Live checks preserve curated user data and distinguish measured elapsed time from polling bounds. Queued reverse-lookup cancellation and lifecycle/layer-count coverage remain in [TODO.md](TODO.md); structural sidebar changes still rebuild the panel.
 
-## Live Service Observation — 2026-08-08
+## Historical reference — 2026-08-08
 
-These are service observations from the in-app browser, not deterministic CPU benchmarks. The fixture used 20 Vincennes points, 20 Noisy–Champs/Géodata-area points, and a fixed seed.
+macOS arm64, Node 26.3.0, npm 11.16.0. Baseline used Vitest 2.1.9/Vite 5.4.21; optimized work used Vitest 4.1.10/Vite 8.2.1. These are recorded observations, not current measurements or isolated dependency comparisons.
 
-- Before the follow-up, an append-only rerun repeated the full rail setup and failed with a primary Overpass 504, adding no trips. The failure UI also exposed the upstream HTML body and retained the old run report.
-- With one bounded, documented backup endpoint, a cold 20-trip run completed by the first five-second observation. It reported no cache reuse (`metro path no`, `walking legs 0/40`).
-- The next 20-trip batch used the same point pools and completed in 325 ms. It reported `metro path yes` and `walking legs 40/40`, so it required no repeated Overpass, rail elevation, or walking-route work.
-- With 40 preview trips present, the Leaflet SVG contained 65 base paths including station circles and 20 editable point markers. Selecting one trip added exactly three highlighted route paths and completed the observed interaction in 325 ms.
+| Scenario | Before | After |
+| --- | ---: | ---: |
+| 40k-node graph, snap two stations | 4.652 ms mean | 0.0446 ms mean |
+| 40k-node graph, connected-row path | 3.094 ms mean | 0.0250 ms mean |
+| 90k-node line, worst-case path | 659 ms median | 24.86 ms median |
+| 250-point/250-trip progress | 86.67 ms full render | 1.72 ms patch |
+| 20×20 metro preview, unselected | 1,200 polylines | 41 unique polylines |
+| Walking / driving-alternatives ORS 401 | 4 / 8 requests | 1 / 1 request |
 
-## Performance Boundaries
+The recorded initial JS+CSS payload after the route-cache follow-up was 71.8 KiB gzip. Read current size from the gate.
 
-- `scripts/benchmarks/railGraph.bench.ts` covers snapping and shortest-path behavior on a 40k-node fixture.
-- `scripts/benchmarks/panel.bench.ts` compares a full panel rebuild with the targeted progress patch.
-- `scripts/check-bundle-size.mjs` reads the production HTML entry graph and fails when initial JavaScript plus CSS exceeds budget.
-- `src/ui/previewSegments.ts` keeps base route geometry unique by shared-array identity; selection adds only the highlighted trip segments.
-- `src/lib/generationRouteCache.ts` bounds page-session metro setup and walking-leg reuse. Exact coordinates, endpoint, padding, snap distance, profile, and query version form the cache keys; reset/page reload clears the cache and failures are never cached.
-- Search uses a single Nominatim request at a time. Interactive searches are prioritized over queued reverse lookups and recent identical searches are cached, but live response time remains external.
-
-## Remaining Bottlenecks
-
-- Queued reverse lookups are not yet canceled after a point is moved again or deleted.
-- The sidebar still uses a full rebuild for structural data changes; the targeted progress and clock paths cover the known high-frequency cases.
-- The first cold metro run still depends on public Overpass and ORS availability. The configured default gets at most one sequential fallback to the documented global backup; broader failover would need explicit endpoint policy and health reporting.
+A live 20-point-per-station fixture first exposed a primary Overpass 504, raw HTML error text and a stale report. After bounded fallback/error/report fixes, a cold 20-trip run completed within the first five-second observation; the next batch took about 325 ms with metro path and 40/40 walking legs reused. Forty trips produced 65 base SVG paths (including station/point layers); selection added three paths. These service/UI observations are not CPU benchmark guarantees.

@@ -57,7 +57,7 @@ Files use standard GPX 1.1 plus an `odc` namespace describing transport mode, se
 
 ## Run Locally
 
-Requires Node.js 24 LTS and npm 11.12.1 or newer.
+Use the Node version pinned in `.node-version` and npm 11.12.1 or newer.
 
 ```bash
 npm ci
@@ -66,18 +66,10 @@ npm run dev
 
 Open [http://127.0.0.1:5198/](http://127.0.0.1:5198/). The fixed port prevents this origin's saved data from appearing to disappear because Vite silently chose another port.
 
-Before contributing or deploying a change, run:
-
-```bash
-npm run check
-```
-
-This runs the automated tests, production build, and initial bundle-size budget. `npm run benchmark` runs the deterministic performance suite.
-
 ## Project Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — runtime structure, behavior, and deployment boundaries.
-- [PERFORMANCE.md](PERFORMANCE.md) — benchmark method, current results, and remaining bottlenecks.
+- [PERFORMANCE.md](PERFORMANCE.md) — benchmark method, browser fixture, and historical measurements.
 - [GPX_EXPORT.md](GPX_EXPORT.md) — exported-file contract.
 - [SOURCES.md](SOURCES.md) — external service and infrastructure references.
 - [TODO.md](TODO.md) — active engineering backlog.

@@ -1,59 +1,39 @@
-# AGENTS.md
+# Project guidance
 
-## Project Scope
+Browser-only Vite/TypeScript app for synthetic walking–rail–walking and direct-driving GPX trips. Keep the runtime in the browser; no backend.
 
-Origin-Destination Creator is a browser-only Vite/TypeScript app for creating synthetic origin-to-destination GPX tracks. It combines manually curated walking point pools, OpenStreetMap/Overpass rail geometry, and openrouteservice walking/elevation data.
+## Read by task
 
-There is no backend. Treat the browser as the whole runtime, and do not introduce server-side dependencies unless the project direction explicitly changes.
+Read only the relevant document or section; verify changing facts in source and git.
 
-## First Reads
+- [ARCHITECTURE.md](ARCHITECTURE.md): module ownership, state, generation, build/deploy.
+- [LESSONS.md](LESSONS.md): regression traps for map, panel, async, or setup changes.
+- [PERFORMANCE.md](PERFORMANCE.md): rendering, routing, caching, bundle work, and smoke fixture.
+- [GPX_EXPORT.md](GPX_EXPORT.md): exported XML changes.
+- [SOURCES.md](SOURCES.md): external service policy or infrastructure assumptions.
+- [TODO.md](TODO.md): choosing follow-up work; the current request defines scope.
+- [README.md](README.md): user-facing behavior and setup.
 
-- Read `ARCHITECTURE.md` before changing core behavior.
-- Read `TODO.md` for the current active backlog.
-- Read `LESSONS.md` before touching map interactions, station radii, panel rendering, or address lookup behavior.
-- Read `SOURCES.md` when external service assumptions, quotas, or documentation are relevant.
-- Read `PERFORMANCE.md` before changing rendering, rail routing, bundle loading, or benchmarks.
-- Use `README.md` as the user-facing contract for setup and app behavior.
+## Commands and verification
 
-## Commands
+- Install: `npm ci`; runtime pin: `.node-version`.
+- Dev: `npm run dev` → `http://127.0.0.1:5198/`.
+- Preview: `npm run preview` → `http://127.0.0.1:4198/`.
+- Full gate: `npm run check` (tests, build, initial-bundle budget).
+- Focused test: `npm run test:run -- src/test/<name>.test.ts`.
+- Performance: `npm run benchmark`.
 
-- Install: `npm ci`
-- Dev server: `npm run dev` (`http://127.0.0.1:5198/`)
-- Preview: `npm run preview` (`http://127.0.0.1:4198/`)
-- Tests: `npm run test:run`
-- Build: `npm run build`
-- Full gate: `npm run check`
-- Benchmarks: `npm run benchmark`
+Run the full gate once before code/config handoff. Focused tests are useful during iteration; do not repeat passing checks without a change or unresolved concern. Documentation-only edits need link/path, contract, and diff checks; CI still runs its configured gate.
 
-Run `npm run test:run` for focused code changes and `npm run check` before handoff. For UI work, use the in-app browser whenever possible. If it is unavailable or lacks a required capability, report the limitation before choosing a fallback.
+Use the in-app browser for relevant UI checks; report capability gaps and any fallback. Preserve saved user data. Fixed strict ports protect origin-scoped localStorage: identify an occupying process instead of changing the port. Mock all public services in automated tests.
 
-The fixed, strict ports preserve the app's origin-scoped localStorage. If a port is occupied, identify the process instead of silently changing the port.
+## Invariants
 
-## Code Boundaries
+- Domain helpers belong in `src/lib/`; UI ownership is mapped in ARCHITECTURE.
+- Escape dynamic panel HTML through `src/ui/html.ts`; treat persisted data and IDs as untrusted.
+- Normalize loaded state through `stateStore.ts`; incompatible schema changes need a deliberate version/migration contract.
+- Use `stationRadius.ts` for radius normalization/conversion/display; sampling and hit tests must use the same normalized station radius.
+- Keep generated JS out of `src/` and preserve TypeScript `noEmit`.
+- ORS keys remain user-provided browser state; keep them out of logs, fixtures, and commits.
 
-- Keep domain logic in `src/lib/` where practical. Prefer pure helpers with focused tests.
-- Keep Leaflet-specific rendering and map imperative behavior in `src/ui/map.ts`.
-- Keep app orchestration, local UI state, async workflows, and persistence wiring in `src/ui/app.ts`.
-- Keep panel markup and event binding in `src/ui/panel.ts`; escape every dynamic string rendered through `innerHTML` with `src/ui/html.ts`.
-- Keep map-click intent logic in `src/ui/interaction.ts` so it remains testable without Leaflet.
-- Do not store generated JS in `src/`; TypeScript configs use `noEmit: true`.
-
-## State And Data
-
-- Persistent browser state key: `odc.generator.state.v1`.
-- Normalize loaded state through `src/lib/stateStore.ts`; do not trust localStorage shape or IDs.
-- If persisted state changes incompatibly, update the schema/version deliberately and document the migration path.
-- Station radius helpers in `src/lib/stationRadius.ts` are the single source of truth for clamping, slider mapping, display, random point generation, and hit testing.
-
-## External Services
-
-- Mock `fetch` in tests. Do not hit public ORS or Overpass from automated tests.
-- openrouteservice API keys are user-provided and stored only in browser localStorage.
-- Overpass and ORS availability, quotas, and CORS behavior are external limits; surface failures clearly rather than hiding them.
-
-## Project Memory
-
-- Keep durable notes short and current in `ARCHITECTURE.md`, `TODO.md`, `LESSONS.md`, `SOURCES.md`, and `PERFORMANCE.md`.
-- Treat `GPX_EXPORT.md` as the exported-file contract, not a task log.
-- `CODEX_MEMO.md` is local/private scratch space and is ignored by git. Do not rely on it as the durable project memory.
-- Update the durable docs after meaningful architecture changes, behavior changes, or avoidable mistakes.
+Update the document that owns a changed contract. Keep TODO to unresolved work and history in git. `CODEX_MEMO.md` is ignored private scratch, not durable guidance.
