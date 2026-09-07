@@ -19,7 +19,10 @@ export interface WalkPoint {
   tripMode?: PointTripMode;
 }
 
-export interface StationRecord {
+export type RoutingMode = "transit" | "driving" | "point_modes";
+
+export interface PlaceRecord {
+  kind?: "area" | "point";
   id: string;
   name: string;
   lat: number;
@@ -27,6 +30,9 @@ export interface StationRecord {
   radiusM: number;
   walkPoints: WalkPoint[];
 }
+
+/** Legacy storage/API name; records now represent arbitrary places and areas. */
+export type StationRecord = PlaceRecord;
 
 export interface AppState {
   schemaVersion: number;
@@ -39,6 +45,9 @@ export interface AppState {
     tripCount: number;
     seed?: number;
     pairingMode: PairingMode;
+    routingMode?: RoutingMode;
+    maxAccessDistanceM?: number;
+    maxTransfers?: number;
   };
   randomPointDefaults: {
     count: number;

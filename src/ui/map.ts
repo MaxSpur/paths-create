@@ -57,7 +57,8 @@ function stationRenderKey(model: MapRenderModel): string {
       station.name,
       station.lat,
       station.lon,
-      station.radiusM
+      station.radiusM,
+      station.kind
     ])
   ]);
 }
@@ -143,7 +144,7 @@ export class MapView {
   }
 
   focusOnStation(station: StationRecord): void {
-    const bounds = L.latLng(station.lat, station.lon).toBounds(Math.max(station.radiusM * 2, 10));
+    const bounds = L.latLng(station.lat, station.lon).toBounds(station.kind === "point" ? 500 : Math.max(station.radiusM * 2, 10));
     this.map.invalidateSize();
     this.map.fitBounds(bounds.pad(0.35), {
       animate: true,
@@ -363,14 +364,16 @@ export class MapView {
           weight: 2,
           bubblingMouseEvents: false
         });
-        marker.bindTooltip(station.name, { direction: "top" });
+        const tooltip = document.createElement("span");
+        tooltip.textContent = `${station.name}${isOrigin ? " · From" : ""}${isDestination ? " · To" : ""}`;
+        marker.bindTooltip(tooltip, { direction: "top" });
         marker.on("click", (event: L.LeafletMouseEvent) => {
           L.DomEvent.stop(event);
           this.callbacks.onStationClick(station.id);
         });
         marker.addTo(this.stationLayer);
 
-        if (isActive || isOrigin || isDestination) {
+        if (station.kind !== "point" && (isActive || isOrigin || isDestination)) {
           L.circle([station.lat, station.lon], {
             radius: station.radiusM,
             color,
@@ -400,7 +403,9 @@ export class MapView {
             weight: isSelected ? 2.2 : 1.5,
             bubblingMouseEvents: false
           });
-          marker.bindTooltip(`${point.tripMode === "driving" ? "Driving" : "Transit"}: ${point.label || point.id}`, { direction: "top" });
+          const tooltip = document.createElement("span");
+          tooltip.textContent = `${point.tripMode === "driving" ? "Driving" : "Transit"}: ${point.label || point.id}`;
+          marker.bindTooltip(tooltip, { direction: "top" });
           marker.on("click", (event: L.LeafletMouseEvent) => {
             L.DomEvent.stop(event);
             this.callbacks.onPointClick(activeStation.id, point.id);

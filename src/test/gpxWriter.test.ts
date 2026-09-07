@@ -237,4 +237,21 @@ describe("buildTripGpx", () => {
     expect(segment?.getAttribute("role")).toBe("driving");
     expect(segment?.getAttribute("mode")).toBe("driving");
   });
+  it("exports schema3 places separately from actual transit boarding and alighting stops", () => {
+    const journey = transitJourneyFixture();
+    const xml = buildTripGpx({id:"places",name:"Home to Work",places:true,
+      originStation:{...originStation,kind:"point"},destinationStation:{...destinationStation,kind:"area"},
+      originPoint,destinationPoint,walkIn:[[2,48]],metro:[],walkOut:[[2.5,48]],transitJourney:journey});
+    const doc = new DOMParser().parseFromString(xml,"application/xml");
+    expect(doc.querySelector("parsererror")).toBeNull();
+    expect(doc.getElementsByTagNameNS(ODC_NS,"trip")[0].getAttribute("schemaVersion")).toBe("3");
+    const places = doc.getElementsByTagNameNS(ODC_NS,"place");
+    expect(places).toHaveLength(2);
+    expect(places[0].getAttribute("kind")).toBe("point");
+    expect(places[0].hasAttribute("radiusM")).toBe(false);
+    expect(places[1].getAttribute("radiusM")).toBe("650");
+    expect(doc.getElementsByTagNameNS(ODC_NS,"station")).toHaveLength(0);
+    expect(xml).toContain(`ref="${journey.from.id}"`);
+  });
+
 });

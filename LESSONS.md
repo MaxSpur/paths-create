@@ -8,7 +8,7 @@ Keep only non-obvious failure modes here. Module ownership and product behavior 
 - Radius sliders update their readout on `input` and commit state on `change`; committing each drag step rebuilds the control.
 - Clock/progress ticks patch existing DOM. Full panel rebuilds disrupt scroll and active controls; keep clock space fixed to avoid layout shifts.
 - Avoid interpolating persisted IDs into selectors; use dataset iteration or explicit escaping.
-- When changing map/editing flows, verify the sequence (select, move inside/outside radius, switch station, deselect/delete), not just isolated clicks. Pure intent tests cannot prove Leaflet focus or control stability.
+- When changing map/editing flows, verify the sequence (select, explicitly add versus move inside/outside radius, switch place, preserve From/To, deselect/delete), not just isolated clicks. Pure intent tests cannot prove Leaflet focus or control stability.
 - Search changes need candidate selection, stale-result dismissal, Escape, accessibility state and narrow-screen control checks. Reuse the fixture in PERFORMANCE.
 
 ## Async and services

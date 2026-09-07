@@ -1,4 +1,4 @@
-import type { GeneratedTrip, GenerationReport, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import type { GeneratedTrip, GenerationReport, LonLat, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import {
   formatStationRadius,
   STATION_RADIUS_SLIDER_STEPS,
@@ -6,6 +6,7 @@ import {
   stationRadiusSliderToMeters
 } from "../lib/stationRadius";
 import { escapeHtml } from "./html";
+import { haversineDistanceM, toLatLon } from "../lib/geo";
 
 export interface PointClockView {
   phase: "debounce" | "queue" | "lookup";
@@ -14,7 +15,10 @@ export interface PointClockView {
 }
 
 export interface PanelModel {
-  mode: "idle" | "add_station" | "add_point";
+  mode: "idle" | "add_station" | "add_place_point" | "add_point" | "move_point" | "move_place";
+  routingMode?: "transit" | "driving" | "point_modes";
+  maxAccessDistanceM?: number;
+  maxTransfers?: number;
   busy: boolean;
   stations: StationRecord[];
   activeStationId: string | null;
@@ -63,6 +67,10 @@ export interface PanelCallbacks {
   onRandomDefaultsChange: (count: number) => void;
   onTripCountChange: (tripCount: number) => void;
   onSeedChange: (seed?: number) => void;
+  onRoutingModeChange?: (mode: NonNullable<PanelModel["routingMode"]>) => void;
+  onMaxAccessDistanceChange?: (distanceM: number) => void;
+  onMaxTransfersChange?: (maxTransfers: number) => void;
+  onSwapPlaces?: () => void;
   onGenerate: () => void;
   onSelectTrip: (tripId: string) => void;
   onDeleteTrip: (tripId: string) => void;
@@ -78,7 +86,9 @@ function stationOption(station: StationRecord, selectedId: string | null): strin
 function pointRow(
   point: WalkPoint,
   selectedPointId: string | null,
-  pointClock?: PointClockView
+  pointClock?: PointClockView,
+  allowDelete = true,
+  showModes = true
 ): string {
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
@@ -96,8 +106,8 @@ function pointRow(
             ? pointClockHtml(pointClock)
             : ""
         }
-        <button data-point-trip-mode type="button" class="point-trip-mode-button ${tripMode}" title="${escapeHtml(modeTitle)}">${modeLabel}</button>
-        <button data-point-delete type="button">Delete</button>
+        ${showModes ? `<button data-point-trip-mode type="button" class="point-trip-mode-button ${tripMode}" title="${escapeHtml(modeTitle)}">${modeLabel}</button>` : ""}
+        ${allowDelete ? `<button data-point-delete type="button">Delete</button>` : ""}
       </div>
     </td>
   </tr>`;
@@ -128,20 +138,32 @@ function tripLabel(trip: GeneratedTrip, stations: StationRecord[]): string {
   return `${origin} -> ${destination}`;
 }
 
+function walkingDistanceLabel(paths: LonLat[][]): string {
+  let distanceM = 0;
+  for (const coords of paths) {
+    for (let index = 1; index < coords.length; index++) {
+      distanceM += haversineDistanceM(toLatLon(coords[index - 1]), toLatLon(coords[index]));
+    }
+  }
+  return distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
+}
+
 function tripRow(trip: GeneratedTrip, selectedTripId: string | null, stations: StationRecord[]): string {
   const isSelected = trip.id === selectedTripId;
   const modeLabel = trip.routeMode === "driving" ? "Driving" : trip.transitJourney ? "Transit" : "Metro";
   const journey = trip.transitJourney;
-  const itinerary = journey ? `${journey.legs.filter((leg) => leg.kind === "transit")
+  const rides = journey?.legs.filter((leg) => leg.kind === "transit") ?? [];
+  const itinerary = journey ? `${rides
     .map((leg) => `${leg.mode.toUpperCase()} ${leg.line?.name ?? ""}`.trim()).join(" → ")} · ${journey.transferCount} change${journey.transferCount === 1 ? "" : "s"}${journey.legs.some((leg) => leg.geometrySource === "station-connector") ? " · Approximate station connector" : ""}` : "";
-  return `<tr data-trip-id="${escapeHtml(trip.id)}" class="${isSelected ? "is-selected" : ""}">
+  const access = rides.length ? `Access + exit walk ${walkingDistanceLabel([trip.walkInCoords, trip.walkOutCoords])} · via ${rides[0].from.name} → ${rides[rides.length - 1].to.name}` : "";
+  return `<tr data-trip-id="${escapeHtml(trip.id)}" class="${isSelected ? "is-selected" : ""}" title="${escapeHtml(trip.fileName)}">
     <td>
       <span class="trip-mode ${trip.routeMode}">${modeLabel}</span>
     </td>
     <td>
       <span class="trip-label">${escapeHtml(tripLabel(trip, stations))}</span>
       ${itinerary ? `<span class="trip-file trip-itinerary" title="${escapeHtml(itinerary)}">${escapeHtml(itinerary)}</span>` : ""}
-      <span class="trip-file">${escapeHtml(trip.fileName)}</span>
+      ${access ? `<span class="trip-file trip-access" title="${escapeHtml(access)} (street walking; station connectors and interchange walks excluded)">${escapeHtml(access)}</span>` : `<span class="trip-file">${escapeHtml(trip.fileName)}</span>`}
     </td>
     <td class="trip-actions">
       <button data-trip-delete type="button">Delete</button>
@@ -229,40 +251,29 @@ function restorePanelScroll(container: HTMLElement, scrollState: PanelScrollStat
   }
 }
 
+function placeRow(station: StationRecord, model: PanelModel): string {
+  const selected = station.id === model.activeStationId;
+  return `<button type="button" class="place-row ${selected ? "is-selected" : ""}" data-place-id="${escapeHtml(station.id)}" aria-pressed="${selected}">
+    <span class="place-row-main"><strong>${escapeHtml(station.name)}</strong><span class="place-row-meta">${station.kind === "point" ? "Single point" : `Area · ${station.walkPoints.length} points`}${selected ? " · Editing" : ""}</span></span>
+    <span class="place-badges">${station.id === model.selectedOriginStationId ? `<span class="place-badge from">From</span>` : ""}${station.id === model.selectedDestinationStationId ? `<span class="place-badge to">To</span>` : ""}</span>
+  </button>`;
+}
+
 function stationCard(station: StationRecord, model: PanelModel): string {
-  const isActive = station.id === model.activeStationId;
   const isOrigin = station.id === model.selectedOriginStationId;
   const isDestination = station.id === model.selectedDestinationStationId;
-  const radiusReadout = formatStationRadius(station.radiusM);
-
   return `<div class="station-card" data-station-id="${escapeHtml(station.id)}">
-    <div class="station-title-row">
-      <input data-station-name type="text" value="${escapeHtml(station.name)}" />
-      <span>${station.walkPoints.length} points</span>
-    </div>
-    <div class="station-coords-row">
-      <span class="station-coords-text">${station.lat.toFixed(5)}, ${station.lon.toFixed(5)}</span>
-    </div>
-    <label class="station-radius-field">
-      <span class="station-radius-header">
-        <span>Radius</span>
-        <strong data-station-radius-readout>${radiusReadout}</strong>
-      </span>
-      <input
-        data-station-radius-slider
-        type="range"
-        min="0"
-        max="${STATION_RADIUS_SLIDER_STEPS}"
-        step="1"
-        value="${stationRadiusMetersToSlider(station.radiusM)}"
-        aria-label="Station radius"
-      />
-    </label>
+    <div class="place-editor-heading">Editing ${station.kind === "point" ? "single point" : "area"}</div>
+    <label>Name<input data-station-name type="text" value="${escapeHtml(station.name)}" /></label>
+    ${station.kind === "point" ? "" : `<label class="station-radius-field">
+      <span class="station-radius-header"><span>Sampling radius</span><strong data-station-radius-readout>${formatStationRadius(station.radiusM)}</strong></span>
+      <input data-station-radius-slider type="range" min="0" max="${STATION_RADIUS_SLIDER_STEPS}" step="1" value="${stationRadiusMetersToSlider(station.radiusM)}" aria-label="Sampling radius" />
+    </label>`}
     <div class="station-btn-row">
-      <button data-set-active type="button" ${isActive ? "disabled" : ""}>${isActive ? "Active" : "Set active"}</button>
-      <button data-set-origin type="button" ${isOrigin ? "disabled" : ""}>${isOrigin ? "Origin" : "Set origin"}</button>
-      <button data-set-destination type="button" ${isDestination ? "disabled" : ""}>${isDestination ? "Destination" : "Set destination"}</button>
-      <button data-delete-station type="button">Delete</button>
+      <button data-set-origin type="button" ${isOrigin ? "disabled" : ""}>${isOrigin ? "From" : "Set From"}</button>
+      <button data-set-destination type="button" ${isDestination ? "disabled" : ""}>${isDestination ? "To" : "Set To"}</button>
+      <button id="modeMovePlace" type="button" ${model.mode === "move_place" ? "disabled" : ""}>${station.kind === "point" ? "Move place" : "Move area &amp; points"}</button>
+      <button data-delete-station type="button">Delete place</button>
     </div>
   </div>`;
 }
@@ -318,83 +329,60 @@ function progressHtml(model: PanelModel): string {
 export function renderPanel(container: HTMLElement, model: PanelModel, callbacks: PanelCallbacks): void {
   const activeStation = model.stations.find((s) => s.id === model.activeStationId) ?? null;
   const scrollState = capturePanelScroll(container);
+  const oldFilter = container.querySelector<HTMLInputElement>("#placeFilter");
+  const filterValue = oldFilter?.value ?? "";
+  const filterFocused = oldFilter !== null && document.activeElement === oldFilter;
+  const filterSelection = [oldFilter?.selectionStart ?? null, oldFilter?.selectionEnd ?? null] as const;
+  const openDetails = new Set(Array.from(container.querySelectorAll<HTMLDetailsElement>("details[open][id]"), (detail) => detail.id));
+  const firstRender = !container.querySelector("#placeFilter");
+  const stations = [...model.stations].sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+  const routingMode = model.routingMode ?? "transit";
+  const placeNames = new Map(stations.map((station) => [station.id, station.name.toLocaleLowerCase()]));
 
   container.innerHTML = `
     <section>
-      <h2>Settings</h2>
-      <label>ORS API Key
-        <input id="orsApiKey" type="password" value="${escapeHtml(model.orsApiKey)}" placeholder="Paste your key" />
-      </label>
-      <div class="btn-row">
-        <button id="clearApiKey" type="button">Clear API key</button>
+      <h2>Places &amp; Areas</h2>
+      <div class="points-help">Choose any location. Transit stops are selected for each trip.</div>
+      <div class="btn-row place-create-row">
+        <button id="modeAddStation" type="button" ${model.mode === "add_station" ? "disabled" : ""}>Add area</button>
+        <button id="modeAddPlacePoint" type="button" ${model.mode === "add_place_point" ? "disabled" : ""}>Add single point</button>
+        ${model.mode !== "idle" ? `<button id="modeIdle" type="button">Cancel placement</button>` : ""}
       </div>
-      <label>Overpass URL
-        <input id="overpassUrl" type="text" value="${escapeHtml(model.overpassUrl)}" />
-      </label>
-      <div class="mode-row">
-        <button id="modeIdle" type="button" ${model.mode === "idle" ? "disabled" : ""}>Idle</button>
-        <button id="modeAddStation" type="button" ${model.mode === "add_station" ? "disabled" : ""}>Map click: add station</button>
-        <button id="modeAddPoint" type="button" ${model.mode === "add_point" ? "disabled" : ""} ${activeStation ? "" : "disabled"}>Map click: add point</button>
+      <div class="status-line" role="status">${escapeHtml(model.statusText ?? "")}</div>
+      <div class="place-endpoints">
+        <label>From<select id="originStationSelect"><option value="" disabled ${model.selectedOriginStationId ? "" : "selected"}>Choose a place</option>${stations.map((s) => stationOption(s, model.selectedOriginStationId)).join("")}</select></label>
+        <button id="swapPlaces" type="button" aria-label="Swap From and To" title="Swap From and To" ${!model.selectedOriginStationId || !model.selectedDestinationStationId ? "disabled" : ""}>⇄</button>
+        <label>To<select id="destinationStationSelect"><option value="" disabled ${model.selectedDestinationStationId ? "" : "selected"}>Choose a place</option>${stations.map((s) => stationOption(s, model.selectedDestinationStationId)).join("")}</select></label>
       </div>
-      <div class="status-line">${escapeHtml(model.statusText ?? "")}</div>
+      <label>Saved places <span class="place-count">(${stations.length})</span><input id="placeFilter" type="search" placeholder="Filter places by name" value="${escapeHtml(filterValue)}" /></label>
+      <div class="station-list" aria-label="Saved places">${stations.map((s) => placeRow(s, model)).join("")}</div>
+      <div id="placeFilterEmpty" class="empty-list-note" hidden>No matching places.</div>
+      ${stations.length === 0 ? `<div class="empty-list-note">Add an area to create a pool of points, or add a single point for one exact location.</div>` : ""}
+      ${activeStation ? stationCard(activeStation, model) : stations.length ? `<div class="points-help">Select a saved place to edit its name and points. From and To stay unchanged.</div>` : ""}
+      <details id="nearbyDetails" class="service-details" ${openDetails.has("nearbyDetails") ? "open" : ""}>
+        <summary>Start from a transit station</summary>
+        <div class="btn-row"><button id="findNearby" type="button" ${model.busy ? "disabled" : ""}>Find stations near map center</button></div>
+        <div class="nearby-row"><select id="nearbySelect"><option value="">Select a station</option>${model.nearbyCandidates.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${c.lat.toFixed(5)}, ${c.lon.toFixed(5)})</option>`).join("")}</select><button id="addNearby" type="button">Add as area</button></div>
+      </details>
     </section>
 
-    <section>
-      <h2>Stations</h2>
-      <div class="btn-row">
-        <button id="findNearby" type="button" ${model.busy ? "disabled" : ""}>Find nearby stations at map center</button>
-      </div>
-      <div class="nearby-row">
-        <select id="nearbySelect">
-          <option value="">Select nearby station</option>
-          ${model.nearbyCandidates
-            .map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.name)} (${c.lat.toFixed(5)}, ${c.lon.toFixed(5)})</option>`)
-            .join("")}
-        </select>
-        <button id="addNearby" type="button">Add selected</button>
-      </div>
-      <label>Origin station
-        <select id="originStationSelect">
-          <option value="">None</option>
-          ${model.stations.map((s) => stationOption(s, model.selectedOriginStationId)).join("")}
-        </select>
-      </label>
-      <label>Destination station
-        <select id="destinationStationSelect">
-          <option value="">None</option>
-          ${model.stations.map((s) => stationOption(s, model.selectedDestinationStationId)).join("")}
-        </select>
-      </label>
-      <div class="station-list">${model.stations.map((s) => stationCard(s, model)).join("")}</div>
-    </section>
-
-    <section>
-      <h2>Active Station Points</h2>
-      ${
-        activeStation
-          ? `
-          <div><strong>${escapeHtml(activeStation.name)}</strong></div>
-          <div class="points-help">Click a map point to select it. In add-point mode, clicks inside the active station radius add a point or move the selected point. Clicks outside the radius deselect the point or activate another station if its radius was hit.</div>
-          <div class="btn-row">
-            <label>Random count <input id="randomCount" type="number" min="1" value="${model.randomCount}" /></label>
-            <div class="station-radius-note">Uses station radius ${formatStationRadius(activeStation.radiusM)}</div>
-            <button id="addRandomPoints" type="button">Generate random points</button>
-          </div>
-          <table class="points-table">
-            <thead><tr><th>Label</th><th>Actions</th></tr></thead>
-            <tbody>
-              ${activeStation.walkPoints
-                .map((point) => pointRow(point, model.selectedPointId, model.pointClocks[point.id]))
-                .join("")}
-            </tbody>
-          </table>
-        `
-          : `<div>Select an active station first.</div>`
-      }
-    </section>
+    ${activeStation ? `<section>
+      <h2>${activeStation.kind === "point" ? "Point location" : "Points in this area"}</h2>
+      <div><strong>${escapeHtml(activeStation.name)}</strong></div>
+      <div class="points-help">${activeStation.kind === "point" ? "This place uses one exact location. Use Move place to reposition it." : "Add points inside this area's sampling radius. Select a point, then Move selected point to reposition it. Overlapping areas keep separate point pools."}</div>
+      ${activeStation.kind === "point" ? "" : `<div class="btn-row">
+        <button id="modeAddPoint" type="button" ${model.mode === "add_point" ? "disabled" : ""}>Add points on map</button>
+        <button id="modeMovePoint" type="button" ${!model.selectedPointId || model.mode === "move_point" ? "disabled" : ""}>Move selected point</button>
+      </div><div class="btn-row random-points-row"><label>Random count<input id="randomCount" type="number" min="1" value="${model.randomCount}" /></label><button id="addRandomPoints" type="button">Generate points</button></div>`}
+      <table class="points-table"><thead><tr><th>Location</th><th>${routingMode === "point_modes" ? "Mode / actions" : "Actions"}</th></tr></thead><tbody>${activeStation.walkPoints.map((point) => pointRow(point, model.selectedPointId, model.pointClocks[point.id], activeStation.kind !== "point", routingMode === "point_modes")).join("")}</tbody></table>
+      ${activeStation.walkPoints.length === 0 ? `<div class="empty-list-note">Add or generate points before using this area for trips.</div>` : ""}
+    </section>` : ""}
 
     <section>
       <h2>Generate Trips</h2>
+      <label>Travel mode<select id="routingMode"><option value="transit" ${routingMode === "transit" ? "selected" : ""}>Transit</option><option value="driving" ${routingMode === "driving" ? "selected" : ""}>Driving</option><option value="point_modes" ${routingMode === "point_modes" ? "selected" : ""}>Mixed (point T/D settings)</option></select></label>
+      ${routingMode === "point_modes" ? `<div class="points-help">T uses transit; D uses driving. A pair drives if either point is D.</div>` : ""}
+      ${routingMode !== "driving" ? `<div class="routing-options"><label>Maximum access walk (m)<input id="maxAccessDistance" type="number" min="100" max="5000" step="100" value="${model.maxAccessDistanceM ?? 1500}" /></label><label>Maximum changes<select id="maxTransfers">${[0, 1, 2, 3].map((count) => `<option value="${count}" ${(model.maxTransfers ?? 3) === count ? "selected" : ""}>${count}</option>`).join("")}</select></label></div><div class="points-help">Walking limit applies at each end of a transit journey, independently of the sampling radius.</div>` : ""}
       <label>Trip count
         <input id="tripCount" type="number" min="1" value="${model.tripCount}" />
       </label>
@@ -430,10 +418,44 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
     </section>
 
     <section>
+      <details id="serviceSettings" class="service-details" ${openDetails.has("serviceSettings") || (firstRender && !model.orsApiKey) ? "open" : ""}>
+        <summary>Service settings${model.orsApiKey ? "" : " · API key required"}</summary>
+        <label>ORS API key<input id="orsApiKey" type="password" value="${escapeHtml(model.orsApiKey)}" placeholder="Paste your key" /></label>
+        <div class="btn-row"><button id="clearApiKey" type="button">Clear API key</button></div>
+        <label>Overpass URL<input id="overpassUrl" type="text" value="${escapeHtml(model.overpassUrl)}" /></label>
+      </details>
+    </section>
+    <section>
       <h2>Danger Zone</h2>
       <button id="resetAll" type="button" class="danger">Reset all saved data</button>
     </section>
   `;
+
+  const filterInput = container.querySelector<HTMLInputElement>("#placeFilter");
+  const filterPlaces = () => {
+    const query = (filterInput?.value ?? "").trim().toLocaleLowerCase();
+    let visibleCount = 0;
+    for (const row of Array.from(container.querySelectorAll<HTMLElement>(".place-row"))) {
+      const name = placeNames.get(row.dataset.placeId ?? "") ?? "";
+      row.hidden = !name.includes(query);
+      if (!row.hidden) visibleCount++;
+    }
+    const empty = container.querySelector<HTMLElement>("#placeFilterEmpty");
+    if (empty) empty.hidden = visibleCount > 0 || stations.length === 0;
+  };
+  filterInput?.addEventListener("input", filterPlaces);
+  filterPlaces();
+  if (filterFocused && filterInput) {
+    filterInput.focus({ preventScroll: true });
+    filterInput.setSelectionRange(filterSelection[0], filterSelection[1]);
+  }
+  for (const row of Array.from(container.querySelectorAll<HTMLButtonElement>(".place-row"))) {
+    row.addEventListener("click", () => { if (row.dataset.placeId) callbacks.onSetActiveStation(row.dataset.placeId); });
+  }
+  container.querySelector<HTMLButtonElement>("#swapPlaces")?.addEventListener("click", () => callbacks.onSwapPlaces?.());
+  container.querySelector<HTMLSelectElement>("#routingMode")?.addEventListener("change", (event) => callbacks.onRoutingModeChange?.((event.target as HTMLSelectElement).value as NonNullable<PanelModel["routingMode"]>));
+  container.querySelector<HTMLInputElement>("#maxAccessDistance")?.addEventListener("change", (event) => callbacks.onMaxAccessDistanceChange?.(Number((event.target as HTMLInputElement).value)));
+  container.querySelector<HTMLSelectElement>("#maxTransfers")?.addEventListener("change", (event) => callbacks.onMaxTransfersChange?.(Number((event.target as HTMLSelectElement).value)));
 
   const apiKeyInput = container.querySelector<HTMLInputElement>("#orsApiKey");
   apiKeyInput?.addEventListener("change", () => callbacks.onApiKeyChange(apiKeyInput.value));
@@ -447,6 +469,10 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
   container.querySelector<HTMLButtonElement>("#modeIdle")?.addEventListener("click", () => callbacks.onSetMode("idle"));
   container.querySelector<HTMLButtonElement>("#modeAddStation")?.addEventListener("click", () => callbacks.onSetMode("add_station"));
   container.querySelector<HTMLButtonElement>("#modeAddPoint")?.addEventListener("click", () => callbacks.onSetMode("add_point"));
+
+  container.querySelector<HTMLButtonElement>("#modeAddPlacePoint")?.addEventListener("click", () => callbacks.onSetMode("add_place_point"));
+  container.querySelector<HTMLButtonElement>("#modeMovePoint")?.addEventListener("click", () => callbacks.onSetMode("move_point"));
+  container.querySelector<HTMLButtonElement>("#modeMovePlace")?.addEventListener("click", () => callbacks.onSetMode("move_place"));
 
   container.querySelector<HTMLButtonElement>("#findNearby")?.addEventListener("click", callbacks.onFindNearby);
   container.querySelector<HTMLButtonElement>("#addNearby")?.addEventListener("click", () => {
@@ -474,7 +500,6 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
     const stationId = stationElement.dataset.stationId;
     if (!stationId) continue;
 
-    stationElement.querySelector<HTMLButtonElement>("[data-set-active]")?.addEventListener("click", () => callbacks.onSetActiveStation(stationId));
     stationElement.querySelector<HTMLButtonElement>("[data-set-origin]")?.addEventListener("click", () => callbacks.onSetOriginStation(stationId));
     stationElement.querySelector<HTMLButtonElement>("[data-set-destination]")?.addEventListener("click", () => callbacks.onSetDestinationStation(stationId));
     stationElement.querySelector<HTMLButtonElement>("[data-delete-station]")?.addEventListener("click", () => callbacks.onDeleteStation(stationId));

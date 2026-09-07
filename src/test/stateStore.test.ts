@@ -128,4 +128,36 @@ describe("stateStore", () => {
     expect(listener).not.toHaveBeenCalled();
     expect(JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null").ui.mapZoom).toBe(15);
   });
+  it("migrates v1 station pools into areas without losing IDs, radii, points, roles or mixed modes", () => {
+    const state = createDefaultState();
+    const {routingMode, maxAccessDistanceM, maxTransfers, ...legacyGeneration} = state.generation;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({...state, schemaVersion:1, generation:legacyGeneration,
+      stations:[{id:"old",name:"Existing place",lat:48.8,lon:2.4,radiusM:1234,
+        walkPoints:[{id:"old-p",lat:48.801,lon:2.401,label:"Saved address",tripMode:"driving"}]}],
+      selectedOriginStationId:"old",selectedDestinationStationId:"old",ui:{...state.ui,activeStationId:"old",selectedPointId:"old-p"}}));
+    const migrated = loadState();
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.stations[0]).toMatchObject({id:"old",kind:"area",radiusM:1234,walkPoints:[{id:"old-p",label:"Saved address",tripMode:"driving"}]});
+    expect(migrated.selectedOriginStationId).toBe("old");
+    expect(migrated.selectedDestinationStationId).toBe("old");
+    expect(migrated.ui.selectedPointId).toBe("old-p");
+    expect(migrated.generation).toMatchObject({routingMode:"point_modes",maxAccessDistanceM:1500,maxTransfers:3});
+  });
+
+  it("normalizes point places and bounded routing preferences without discarding extra saved points", () => {
+    const store = createStateStore(createDefaultState());
+    store.update(draft => {
+      draft.stations = [{id:"single",name:"Home",kind:"point",lat:48,lon:2,radiusM:500,walkPoints:[]},
+        {id:"multiple",name:"Pool",kind:"point",lat:48,lon:2,radiusM:500,walkPoints:[{id:"p1",lat:48,lon:2},{id:"p2",lat:49,lon:3}]}];
+      draft.generation.maxAccessDistanceM = 99999;
+      draft.generation.maxTransfers = -1;
+      return draft;
+    });
+    expect(store.getState().stations[0].walkPoints).toHaveLength(1);
+    expect(store.getState().stations[1].kind).toBe("area");
+    expect(store.getState().stations[1].walkPoints).toHaveLength(2);
+    expect(store.getState().generation).toMatchObject({maxAccessDistanceM:5000,maxTransfers:0});
+    expect(loadState()).toEqual(store.getState());
+  });
+
 });

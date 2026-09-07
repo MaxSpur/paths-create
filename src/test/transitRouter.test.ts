@@ -22,6 +22,38 @@ function route(network: TransitNetwork, from = 0, to = network.stops.length - 1,
 }
 
 describe("findTransitJourney", () => {
+  it("rejects automatic train loops ending in the boarding station group", () => {
+    const network = fixture([[2, 48], [2.02, 48], [2.0001, 48]], [[0, 1, 2]]);
+    network.stops[0].parent = "same-station";
+    network.stops[2].parent = "same-station";
+    expect(findTransitJourney(network, network.stops[0], network.stops[2], {
+      originStopCosts: new Map([[0, 0]]), destinationStopCosts: new Map([[2, 0]])
+    })).toBeNull();
+  });
+
+  it("retains a valid alternate boarding group when a cheaper station-return loop exists", () => {
+    const network = fixture([[2, 48], [2.02, 48], [2.0001, 48], [2.01, 48]], [[0, 1, 2], [3, 1, 2]]);
+    network.stops[0].parent = "same-station";
+    network.stops[2].parent = "same-station";
+    const journey = findTransitJourney(network, network.stops[0], network.stops[2], {
+      originStopCosts: new Map([[0, 0], [3, 2000]]), destinationStopCosts: new Map([[2, 0]])
+    });
+    expect(journey?.from.id).toBe("s3");
+    expect(journey?.to.id).toBe("s2");
+  });
+
+  it("shares exact ridden geometry across journeys without collapsing distinct branches", () => {
+    const network = fixture(linear, [[0, 1, 2], [0, 3, 4]]);
+    network.patterns[1].line = 0;
+    const first = route(network, 0, 2)!;
+    const second = route(network, 0, 2)!;
+    const branch = route(network, 0, 4)!;
+    expect(second.legs[0].coordinates).toBe(first.legs[0].coordinates);
+    expect(branch.legs[0].line?.id).toBe(first.legs[0].line?.id);
+    expect(branch.legs[0].coordinates).not.toBe(first.legs[0].coordinates);
+    expect(branch.legs[0].coordinates).toEqual([linear[0], linear[3], linear[4]]);
+  });
+
   it("returns a direct service with all intermediate shape coordinates and no transfers", () => {
     const network = fixture(linear, [[0, 1, 2, 3, 4]]);
     network.patterns[0].coordinates.splice(1, 0, [2.01, 48.001]);

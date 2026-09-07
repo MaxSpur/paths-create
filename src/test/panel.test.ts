@@ -35,6 +35,20 @@ function createCallbacks(): PanelCallbacks {
   };
 }
 
+function placesModel(): PanelModel {
+  return {
+    mode: "idle", busy: false,
+    stations: Array.from({ length: 12 }, (_, index) => ({
+      id: `place-${index}`, name: `Place ${String(12 - index).padStart(2, "0")}`, lat: 48.8, lon: 2.4,
+      radiusM: 500, walkPoints: [{ id: `point-${index}`, lat: 48.8, lon: 2.4, label: "Address" }]
+    })),
+    activeStationId: "place-0", selectedPointId: "point-0",
+    selectedOriginStationId: "place-1", selectedDestinationStationId: "place-2",
+    orsApiKey: "test", overpassUrl: "https://example.test", tripCount: 1, randomCount: 1,
+    nearbyCandidates: [], generatedTrips: [], selectedTripId: null, pointClocks: {}, canDownload: false
+  };
+}
+
 describe("renderPanel", () => {
   it("escapes dynamic text and attribute values", () => {
     const stationName = `<img src=x onerror="alert(1)"> Central`;
@@ -47,6 +61,7 @@ describe("renderPanel", () => {
     const container = document.createElement("div");
     const model: PanelModel = {
       mode: "idle",
+      routingMode: "point_modes",
       busy: false,
       stations: [
         {
@@ -398,4 +413,123 @@ describe("renderPanel", () => {
     }
 
   });
+  it("shows a compact alphabetic library with one editor and independent endpoints", () => {
+    const container = document.createElement("div");
+    const model = placesModel();
+    const onSetActiveStation = vi.fn();
+    const onSetOriginStation = vi.fn();
+    const onSetDestinationStation = vi.fn();
+    renderPanel(container, model, { ...createCallbacks(), onSetActiveStation, onSetOriginStation, onSetDestinationStation });
+    const rows = [...container.querySelectorAll<HTMLButtonElement>(".place-row")];
+    expect(rows).toHaveLength(12);
+    expect(rows[0].textContent).toContain("Place 01");
+    expect(container.querySelectorAll(".station-card")).toHaveLength(1);
+    expect(container.querySelectorAll("[data-station-radius-slider]")).toHaveLength(1);
+    expect(container.querySelector(".place-row.is-selected")?.textContent).toContain("Editing");
+    expect(container.querySelector(".place-badge.from")?.closest(".place-row")?.getAttribute("data-place-id")).toBe("place-1");
+    expect(container.querySelector(".place-badge.to")?.closest(".place-row")?.getAttribute("data-place-id")).toBe("place-2");
+    rows[0].click();
+    expect(onSetActiveStation).toHaveBeenCalledWith("place-11");
+    expect(onSetOriginStation).not.toHaveBeenCalled();
+    expect(onSetDestinationStation).not.toHaveBeenCalled();
+  });
+
+  it("preserves the library filter, caret, focus, and expanded settings on rerender", () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    try {
+      const model = placesModel();
+      renderPanel(container, model, createCallbacks());
+      const filter = container.querySelector<HTMLInputElement>("#placeFilter")!;
+      filter.value = "Place 01";
+      filter.focus();
+      filter.setSelectionRange(3, 6);
+      filter.dispatchEvent(new Event("input"));
+      expect(container.querySelectorAll(".place-row:not([hidden])")).toHaveLength(1);
+      container.querySelector<HTMLDetailsElement>("#serviceSettings")!.open = true;
+      renderPanel(container, { ...model, statusText: "Address updated" }, createCallbacks());
+      const restored = container.querySelector<HTMLInputElement>("#placeFilter")!;
+      expect(restored.value).toBe("Place 01");
+      expect(document.activeElement).toBe(restored);
+      expect([restored.selectionStart, restored.selectionEnd]).toEqual([3, 6]);
+      expect(container.querySelectorAll(".place-row:not([hidden])")).toHaveLength(1);
+      expect(container.querySelector<HTMLDetailsElement>("#serviceSettings")!.open).toBe(true);
+      restored.value = "No match";
+      restored.dispatchEvent(new Event("input"));
+      expect(container.querySelector<HTMLElement>("#placeFilterEmpty")!.hidden).toBe(false);
+      expect(container.querySelector(".station-card")?.getAttribute("data-station-id")).toBe("place-0");
+    } finally { container.remove(); }
+  });
+
+  it("keeps single-point places exact and uses explicit placement modes", () => {
+    const container = document.createElement("div");
+    const model = placesModel();
+    model.stations[0].kind = "point";
+    const onSetMode = vi.fn();
+    renderPanel(container, model, { ...createCallbacks(), onSetMode });
+    expect(container.querySelector("[data-station-radius-slider]")).toBeNull();
+    expect(container.querySelector("#addRandomPoints")).toBeNull();
+    expect(container.querySelector("[data-point-delete]")).toBeNull();
+    container.querySelector<HTMLButtonElement>("#modeMovePlace")!.click();
+    container.querySelector<HTMLButtonElement>("#modeAddPlacePoint")!.click();
+    expect(onSetMode.mock.calls).toEqual([["move_place"], ["add_place_point"]]);
+    model.stations[0].kind = "area";
+    renderPanel(container, model, { ...createCallbacks(), onSetMode });
+    container.querySelector<HTMLButtonElement>("#modeMovePoint")!.click();
+    container.querySelector<HTMLButtonElement>("#modeAddPoint")!.click();
+    expect(onSetMode.mock.calls.slice(2)).toEqual([["move_point"], ["add_point"]]);
+  });
+
+  it("wires routing options and swapping without exposing point modes outside Mixed", () => {
+    const container = document.createElement("div");
+    const model = placesModel();
+    const callbacks = { ...createCallbacks(), onRoutingModeChange: vi.fn(), onMaxAccessDistanceChange: vi.fn(), onMaxTransfersChange: vi.fn(), onSwapPlaces: vi.fn() };
+    renderPanel(container, model, callbacks);
+    expect(container.querySelector("[data-point-trip-mode]")).toBeNull();
+    const mode = container.querySelector<HTMLSelectElement>("#routingMode")!;
+    expect(mode.value).toBe("transit");
+    mode.value = "driving";
+    mode.dispatchEvent(new Event("change"));
+    const access = container.querySelector<HTMLInputElement>("#maxAccessDistance")!;
+    access.value = "2000";
+    access.dispatchEvent(new Event("change"));
+    const changes = container.querySelector<HTMLSelectElement>("#maxTransfers")!;
+    changes.value = "2";
+    changes.dispatchEvent(new Event("change"));
+    container.querySelector<HTMLButtonElement>("#swapPlaces")!.click();
+    expect(callbacks.onRoutingModeChange).toHaveBeenCalledWith("driving");
+    expect(callbacks.onMaxAccessDistanceChange).toHaveBeenCalledWith(2000);
+    expect(callbacks.onMaxTransfersChange).toHaveBeenCalledWith(2);
+    expect(callbacks.onSwapPlaces).toHaveBeenCalledOnce();
+    renderPanel(container, { ...model, routingMode: "driving" }, callbacks);
+    expect(container.querySelector("#maxAccessDistance")).toBeNull();
+    renderPanel(container, { ...model, routingMode: "point_modes" }, callbacks);
+    expect(container.querySelector("[data-point-trip-mode]")).not.toBeNull();
+    expect(container.textContent).toContain("A pair drives if either point is D.");
+  });
+
+  it("shows chosen boarding stops and measured endpoint walks without counting interchanges", () => {
+    const model = placesModel();
+    const journey = transitJourneyFixture();
+    journey.legs[0].from.name = '<img src=x onerror="alert(1)"> Boarding';
+    journey.legs[2].to.name = "Alighting <&>";
+    // The large middle walking transfer must not contribute to access + exit distance.
+    journey.legs[1].coordinates = [[0, 0], [1, 0]];
+    model.generatedTrips = [{
+      id: "chosen-stops", pairKey: "a::b", fileName: "chosen-stops.gpx", gpx: "", routeMode: "metro",
+      originPoint: { id: "a", lat: 0, lon: 0 }, destinationPoint: { id: "b", lat: 0, lon: 0.006 },
+      walkInCoords: [[0, 0], [0.001, 0], [0.002, 0]], walkOutCoords: [[0.005, 0], [0.006, 0]],
+      metroCoords: [], drivingCoords: [], transitJourney: journey
+    }];
+    const container = document.createElement("div");
+    renderPanel(container, model, createCallbacks());
+    expect(container.querySelector(".trip-access")?.textContent).toBe('Access + exit walk 334 m · via <img src=x onerror="alert(1)"> Boarding → Alighting <&>');
+    expect(container.querySelector(".trip-access img")).toBeNull();
+    expect(container.querySelector("tr[data-trip-id]")?.getAttribute("title")).toBe("chosen-stops.gpx");
+    expect(container.querySelector<HTMLSelectElement>("#originStationSelect")!.options[0].disabled).toBe(true);
+    model.selectedOriginStationId = null;
+    renderPanel(container, model, createCallbacks());
+    expect(container.querySelector<HTMLSelectElement>("#originStationSelect")!.value).toBe("");
+  });
+
 });

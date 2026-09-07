@@ -33,9 +33,9 @@ describe("interaction", () => {
     expect(match?.id).toBe("b");
   });
 
-  it("moves the selected point when add-point mode clicks stay inside the active station radius", () => {
+  it("moves the selected point only in explicit move mode", () => {
     const result = resolveMapClickAction({
-      mode: "add_point",
+      mode: "move_point",
       point: activePoint,
       stations: [
         station({
@@ -108,10 +108,10 @@ describe("interaction", () => {
     });
   });
 
-  it("adds a station only when add-station mode clicks outside all station radii", () => {
+  it("creates an area even when existing areas overlap", () => {
     const result = resolveMapClickAction({
       mode: "add_station",
-      point: farAwayPoint,
+      point: activePoint,
       stations: [station({ id: "a", lat: 52.52, lon: 13.405 })],
       activeStationId: "a",
       selectedPointId: null
@@ -119,4 +119,25 @@ describe("interaction", () => {
 
     expect(result).toEqual({ type: "add_station" });
   });
+  it("adds without moving a selected point and gives the active overlapping area priority", () => {
+    expect(resolveMapClickAction({ mode: "add_point", point: activePoint,
+      stations: [station({id:"a",lat:52.52,lon:13.405,walkPoints:[{id:"p",...activePoint}]}),
+        station({id:"b",...activePoint})], activeStationId:"a", selectedPointId:"p"
+    })).toEqual({type:"add_point",stationId:"a"});
+  });
+
+  it("rejects moving an area point outside its radius without deselecting it", () => {
+    expect(resolveMapClickAction({mode:"move_point",point:farAwayPoint,
+      stations:[station({id:"a",lat:52.52,lon:13.405,walkPoints:[{id:"p",...activePoint}]})],
+      activeStationId:"a",selectedPointId:"p"
+    })).toEqual({type:"noop"});
+  });
+
+  it("single point places have no area hit radius or pool insertion", () => {
+    const place = {...station({id:"single",...activePoint}),kind:"point" as const};
+    expect(findNearestStationWithinRadius([place],activePoint)).toBeNull();
+    expect(resolveMapClickAction({mode:"add_point",point:activePoint,stations:[place],activeStationId:place.id,selectedPointId:null})).toEqual({type:"noop"});
+    expect(resolveMapClickAction({mode:"move_place",point:farAwayPoint,stations:[place],activeStationId:place.id,selectedPointId:null})).toEqual({type:"move_place",stationId:place.id});
+  });
+
 });

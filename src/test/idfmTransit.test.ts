@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { selectAutomaticTransit } from "../lib/automaticTransit";
 import { findTransitJourney } from "../lib/transitRouter";
 import type { TransitNetwork } from "../lib/transitTypes";
 import { haversineDistanceM, toLatLon } from "../lib/geo";
@@ -19,6 +20,18 @@ describe("published IDFM snapshot", () => {
     for (let i = 1; i < journey!.legs.length; i++) {
       expect(journey!.legs[i].coordinates[0]).toEqual(journey!.legs[i - 1].coordinates.at(-1));
     }
+  });
+
+  it("automatically selects connected stops for arbitrary Pantin and Noisy points", async () => {
+    const origin = { lat: 48.902, lon: 2.401 };
+    const destination = { lat: 48.838, lon: 2.581 };
+    const result = await selectAutomaticTransit(network, origin, destination, async (from, to) =>
+      [[from.lon, from.lat], [to.lon, to.lat]], { maxAccessDistanceM: 1500, maxTransfers: 3 });
+    const rides = result.journey.legs.filter((leg) => leg.kind === "transit");
+    expect(rides.map((leg) => leg.line?.name)).toEqual(["E", "A"]);
+    expect(result.walkIn[0]).toEqual([origin.lon, origin.lat]);
+    expect(result.walkOut.at(-1)).toEqual([destination.lon, destination.lat]);
+    expect(result.journey.transferCount).toBe(1);
   });
 
   it("retains direct RER A journeys and allows the reverse direction", () => {

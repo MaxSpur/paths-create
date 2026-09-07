@@ -10,11 +10,13 @@ xmlns:odc="https://www.maximspur.com/origin-destination-creator/gpx/1"
 
 ## Track Structure
 
-New Île-de-France itineraries use trip `schemaVersion="2"`: access walk, ordered transit/transfer legs, then exit walk. Transit track types are `metro`, `rer`, `train` or `tram`; transfer tracks use `walking`. Segment roles distinguish `transit` and `transfer`. Each leg has stop references; transit legs also carry line ID/name. `geometrySource` distinguishes `gtfs`, `ors` and approximate `station-connector` geometry. These fields are repeated consistently on `odc:segment` and `odc:segmentRef`.
+Places & Areas exports use trip `schemaVersion="3"` for both transit and driving. Origin/destination collections are `<odc:place kind="area|point">` with ID, name and center coordinates; `radiusM` exists only for areas. These are collection metadata, not boarding stations. Actual sampled endpoints remain `<odc:point>`; real transit stops remain segment `kind="stop"` references.
+
+Transit track structure follows schema 2: access walk, ordered transit/transfer legs, then exit walk. Transit track types are `metro`, `rer`, `train` or `tram`; transfer tracks use `walking`. Segment roles distinguish `transit` and `transfer`. Each leg has stop references; transit legs also carry line ID/name. `geometrySource` distinguishes `gtfs`, `ors` and approximate `station-connector` geometry. These fields are repeated consistently on `odc:segment` and `odc:segmentRef`.
 
 Schema 2 trip metadata includes `networkVersion`, `transferCount` and data attribution/license URLs. The legacy trip `routeMode="metro"` and namespace remain compatible with saved point modes; readers must use track modes for actual transport type. No departure times or durations are synthesized. The standard metadata time is file creation time.
 
-Driving and legacy OSM itineraries keep schema 1 below. Consumers supporting only schema 1 must explicitly reject or handle schema 2 rather than assume three tracks.
+Legacy callers without the places flag retain schemas 1/2. Consumers must inspect `schemaVersion` and explicitly support schema 3 rather than treating a collection center as a station or assuming three tracks.
 
 Each exported file contains one trip.
 
@@ -32,7 +34,7 @@ Each GPX track contains one `<trkseg>`. The full segment metadata is attached to
 
 ## Trip Metadata
 
-The GPX `<metadata>` block contains:
+Legacy schema 1/2 metadata (schema 3 replaces `<odc:station>` with `<odc:place>`):
 
 - standard `<name>`, `<desc>`, and `<time>`,
 - `<extensions><odc:trip id="..." routeMode="metro|driving" schemaVersion="1" segmentCount="...">`, with optional `pairKey`,

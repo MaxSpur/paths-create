@@ -2,6 +2,7 @@ import { downloadZip } from "../lib/exportZip";
 import { createGenerationRouteCache } from "../lib/generationRouteCache";
 import { reverseGeocode, searchLocations } from "../lib/geocode";
 import { generateTrips } from "../lib/generator";
+import { createPlace, movePlace } from "../lib/places";
 import { newId } from "../lib/ids";
 import { fetchNearbyStations } from "../lib/overpassClient";
 import { pairKey } from "../lib/pairing";
@@ -264,7 +265,7 @@ export function createApp(root: HTMLElement): void {
         switch (action.type) {
           case "activate_station":
             setActiveStation(action.stationId);
-            statusText = "Active station set.";
+            statusText = "Place selected for editing.";
             render();
             return;
           case "deselect_point":
@@ -273,8 +274,18 @@ export function createApp(root: HTMLElement): void {
               render();
             }
             return;
+          case "move_place":
+            moveActivePlace(action.stationId, point);
+            mode = "idle";
+            render();
+            return;
+          case "add_place_point":
+            addStationAtPoint(point, "point");
+            render();
+            return;
           case "move_point":
             moveSelectedPoint(action.stationId, action.pointId, point);
+            mode = "idle";
             render();
             return;
           case "add_point":
@@ -291,7 +302,7 @@ export function createApp(root: HTMLElement): void {
       },
       onStationClick: (stationId) => {
         setActiveStation(stationId);
-        statusText = "Active station set.";
+        statusText = "Place selected for editing.";
         render();
       },
       onPointClick: (stationId, pointId) => {
@@ -324,6 +335,7 @@ export function createApp(root: HTMLElement): void {
   };
 
   const setActiveStation = (stationId: string, focusMap = true) => {
+    mode = "idle";
     store.update((draft) => {
       draft.ui.activeStationId = stationId;
       draft.ui.selectedPointId = null;
@@ -354,16 +366,9 @@ export function createApp(root: HTMLElement): void {
     return true;
   };
 
-  const addStationAtPoint = (point: LatLon) => {
-    const name = `Station ${store.getState().stations.length + 1}`;
-    const station: StationRecord = {
-      id: newId("station"),
-      name,
-      lat: point.lat,
-      lon: point.lon,
-      radiusM: DEFAULT_STATION_RADIUS_M,
-      walkPoints: []
-    };
+  const addStationAtPoint = (point: LatLon, kind: "area" | "point" = "area") => {
+    const name = `${kind === "area" ? "Area" : "Place"} ${store.getState().stations.length + 1}`;
+    const station = createPlace(point, name, kind);
 
     store.update((draft) => {
       draft.stations.push(station);
@@ -372,20 +377,22 @@ export function createApp(root: HTMLElement): void {
       if (!draft.selectedOriginStationId) {
         draft.selectedOriginStationId = station.id;
       }
-      if (!draft.selectedDestinationStationId) {
+      if (!draft.selectedDestinationStationId && draft.selectedOriginStationId !== station.id) {
         draft.selectedDestinationStationId = station.id;
       }
       return draft;
     });
 
     map.focusOnStation(station);
-    statusText = `Added station ${name}.`;
+    station.walkPoints.forEach((item) => schedulePointAddressRefresh(station.id, item.id, item.lat, item.lon, 0));
+    mode = "idle";
+    statusText = `Added ${kind === "area" ? "area" : "place"} ${name}.`;
   };
 
   const addPointToStation = (stationId: string, point: LatLon) => {
     const station = getStation(stationId);
-    if (!station) {
-      statusText = "Select an active station first.";
+    if (!station || station.kind === "point") {
+      statusText = "Select an area first.";
       return;
     }
 
@@ -448,6 +455,18 @@ export function createApp(root: HTMLElement): void {
     statusText = `Moved selected point in ${stationName}.`;
   };
 
+  const moveActivePlace = (stationId: string, point: LatLon) => {
+    const current = getStation(stationId);
+    if (!current) return;
+    const moved = movePlace(current, point);
+    store.update((draft) => {
+      draft.stations = draft.stations.map((place) => place.id === stationId ? moved : place);
+      return draft;
+    });
+    moved.walkPoints.forEach((item, index) => schedulePointAddressRefresh(stationId, item.id, item.lat, item.lon, index * 50));
+    statusText = `Moved ${moved.name}${moved.kind === "point" ? "" : " and its points"}.`;
+  };
+
   const togglePointSelection = (
     stationId: string,
     pointId: string,
@@ -460,6 +479,7 @@ export function createApp(root: HTMLElement): void {
       return;
     }
 
+    mode = "idle";
     const isAlreadySelected =
       state.ui.activeStationId === stationId && state.ui.selectedPointId === pointId;
 
@@ -543,13 +563,17 @@ export function createApp(root: HTMLElement): void {
       if (!point) return draft;
       const nextMode = point.tripMode === "driving" ? "metro" : "driving";
       point.tripMode = nextMode;
-      nextStatusText = nextMode === "driving" ? "Point set to driving mode." : "Point set to metro mode.";
+      nextStatusText = nextMode === "driving" ? "Point set to driving mode." : "Point set to transit mode.";
       return draft;
     });
     statusText = nextStatusText;
   };
 
   const deletePoint = (stationId: string, pointId: string) => {
+    if (getStation(stationId)?.kind === "point") {
+      statusText = "Delete the place to remove its single point.";
+      return;
+    }
     clearPointAddressTimer(pointId);
     store.update((draft) => {
       const station = draft.stations.find((item) => item.id === stationId);
@@ -580,7 +604,7 @@ export function createApp(root: HTMLElement): void {
   const addRandomPoints = (stationId: string, count: number) => {
     const state = store.getState();
     const station = state.stations.find((item) => item.id === stationId);
-    if (!station) return;
+    if (!station || station.kind === "point") return;
 
     const sampledPoints = samplePointsWithinRadius(
       { lat: station.lat, lon: station.lon },
@@ -636,6 +660,7 @@ export function createApp(root: HTMLElement): void {
       draft.stations.push({
         id: stationId,
         name: candidate.name,
+        kind: "area",
         lat: candidate.lat,
         lon: candidate.lon,
         radiusM: DEFAULT_STATION_RADIUS_M,
@@ -644,7 +669,7 @@ export function createApp(root: HTMLElement): void {
       draft.ui.activeStationId = stationId;
       draft.ui.selectedPointId = null;
       if (!draft.selectedOriginStationId) draft.selectedOriginStationId = stationId;
-      if (!draft.selectedDestinationStationId) draft.selectedDestinationStationId = stationId;
+      if (!draft.selectedDestinationStationId && draft.selectedOriginStationId !== stationId) draft.selectedDestinationStationId = stationId;
       return draft;
     });
 
@@ -652,7 +677,7 @@ export function createApp(root: HTMLElement): void {
     if (station) {
       map.focusOnStation(station);
     }
-    statusText = `Added station ${candidate.name}.`;
+    statusText = `Added area ${candidate.name}.`;
     render();
   };
 
@@ -662,7 +687,7 @@ export function createApp(root: HTMLElement): void {
     const destination = state.stations.find((s) => s.id === state.selectedDestinationStationId);
 
     if (!origin || !destination) {
-      statusText = "Select both origin and destination stations first.";
+      statusText = "Choose both From and To places first.";
       render();
       return;
     }
@@ -681,11 +706,12 @@ export function createApp(root: HTMLElement): void {
     render();
 
     try {
-      const hasTransitPairs = origin.walkPoints.some((point) => point.tripMode !== "driving")
-        && destination.walkPoints.some((point) => point.tripMode !== "driving");
+      const hasTransitPairs = state.generation.routingMode !== "driving" &&
+        (state.generation.routingMode === "transit" || (origin.walkPoints.some((point) => point.tripMode !== "driving")
+          && destination.walkPoints.some((point) => point.tripMode !== "driving")));
       let transitNetwork;
       let transitNetworkError: string | undefined;
-      if (hasTransitPairs && state.orsApiKey.trim() && isInTransitRegion(origin) && isInTransitRegion(destination)) {
+      if (hasTransitPairs && state.orsApiKey.trim() && origin.walkPoints.some(isInTransitRegion) && destination.walkPoints.some(isInTransitRegion)) {
         try {
           transitNetwork = await loadTransitNetwork();
         } catch (error) {
@@ -704,6 +730,10 @@ export function createApp(root: HTMLElement): void {
         routeCache: generationRouteCache,
         transitNetwork,
         transitNetworkError,
+        automaticTransit: true,
+        routingMode: state.generation.routingMode,
+        maxAccessDistanceM: state.generation.maxAccessDistanceM,
+        maxTransfers: state.generation.maxTransfers,
         onProgress: (update) => {
           applyGenerationProgress(update);
           if (generationProgress && !updateGenerationProgress(panelElement, generationProgress)) {
@@ -793,7 +823,7 @@ export function createApp(root: HTMLElement): void {
   };
 
   const resetAll = () => {
-    if (!window.confirm("Reset all saved data (stations, points, settings, API key)?")) {
+    if (!window.confirm("Reset all saved data (places, points, settings, API key)?")) {
       return;
     }
     for (const timer of pointAddressTimers.values()) {
@@ -844,6 +874,9 @@ export function createApp(root: HTMLElement): void {
         overpassUrl: state.overpassUrl,
         tripCount: state.generation.tripCount,
         seed: state.generation.seed,
+        routingMode: state.generation.routingMode,
+        maxAccessDistanceM: state.generation.maxAccessDistanceM,
+        maxTransfers: state.generation.maxTransfers,
         randomCount: state.randomPointDefaults.count,
         nearbyCandidates,
         generatedTrips,
@@ -859,15 +892,16 @@ export function createApp(root: HTMLElement): void {
       {
         onSetMode: (nextMode) => {
           mode = nextMode;
-          if (nextMode !== "add_point") {
-            clearSelectedPoint();
-          }
-          statusText =
-            nextMode === "idle"
-              ? "Idle mode."
-              : nextMode === "add_station"
-                ? "Click outside existing station radii to add stations."
-                : "Click inside the active station radius to add a point or move the selected point.";
+          if (nextMode !== "move_point") clearSelectedPoint();
+          const messages: Record<EditMode, string> = {
+            idle: "Select a place, point, or trip on the map.",
+            add_station: "Click anywhere to create a circular area. Areas may overlap.",
+            add_place_point: "Click anywhere to create a single-point place.",
+            add_point: "Click inside the selected area to add points.",
+            move_point: "Click inside the selected area to move the selected point.",
+            move_place: "Click a new location to move this place and its points."
+          };
+          statusText = messages[nextMode];
           render();
         },
         onApiKeyChange: (value) => {
@@ -902,7 +936,7 @@ export function createApp(root: HTMLElement): void {
         },
         onSetActiveStation: (stationId) => {
           setStationSelection(stationId, "active");
-          statusText = "Active station set.";
+          statusText = "Place selected for editing.";
           render();
         },
         onDeleteStation: (stationId) => {
@@ -936,6 +970,22 @@ export function createApp(root: HTMLElement): void {
             draft.randomPointDefaults.count = count;
             return draft;
           });
+        },
+        onSwapPlaces: () => {
+          store.update((draft) => {
+            [draft.selectedOriginStationId, draft.selectedDestinationStationId] =
+              [draft.selectedDestinationStationId, draft.selectedOriginStationId];
+            return draft;
+          });
+        },
+        onRoutingModeChange: (value) => {
+          store.update((draft) => { draft.generation.routingMode = value; return draft; });
+        },
+        onMaxAccessDistanceChange: (value) => {
+          store.update((draft) => { draft.generation.maxAccessDistanceM = value; return draft; });
+        },
+        onMaxTransfersChange: (value) => {
+          store.update((draft) => { draft.generation.maxTransfers = value; return draft; });
         },
         onTripCountChange: (tripCount) => {
           store.update((draft) => {

@@ -38,7 +38,7 @@ body,
 
 .panel section {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 2px;
   padding: 10px;
   margin-bottom: 12px;
   background: #fdfdfd;
@@ -70,7 +70,7 @@ body,
   width: 100%;
   margin-top: 4px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 6px 8px;
 }
 
@@ -85,7 +85,7 @@ body,
   border: 1px solid #b8c4d1;
   background: #eef4f8;
   color: #0f172a;
-  border-radius: 6px;
+  border-radius: 2px;
   padding: 6px 9px;
   cursor: pointer;
 }
@@ -96,7 +96,6 @@ body,
 }
 
 .btn-row,
-.mode-row,
 .nearby-row {
   display: flex;
   gap: 6px;
@@ -111,46 +110,57 @@ body,
 .station-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-height: 280px;
+  max-height: 224px;
   overflow: auto;
+  border-block: 1px solid var(--border);
 }
 
-.station-card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px;
-  background: #fafcff;
-}
-
-.station-title-row {
+.panel .place-row {
+  width: 100%;
   display: flex;
-  gap: 8px;
   align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 6px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  text-align: left;
 }
 
-.station-title-row input {
-  flex: 1;
-}
-
-.station-coords-row {
-  display: block;
-  margin-top: 4px;
-}
-
-.station-coords-text {
-  font-size: 0.72rem;
-  color: #64748b;
-  align-self: center;
-}
+.panel .place-row[hidden] { display: none; }
+.panel .place-row:last-child { border-bottom: 0; }
+.panel .place-row:hover { background: #f0f5f6; }
+.panel .place-row.is-selected { background: #e5f3f0; box-shadow: inset 3px 0 var(--accent); }
+.place-row-main { display: flex; min-width: 0; flex-direction: column; gap: 2px; }
+.place-row-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+.place-row-meta, .place-count { color: var(--muted); font-size: 0.72rem; }
+.place-badges { display: flex; flex-shrink: 0; gap: 4px; }
+.place-badge { font-size: 0.67rem; padding: 2px 4px; font-weight: 600; }
+.place-badge.from { background: #d9ecea; color: #075f58; }
+.place-badge.to { background: #f3e6d6; color: #804617; }
+.place-editor-heading { color: var(--accent); font-size: 0.72rem; font-weight: 600; margin-bottom: 6px; }
+.station-card { border-top: 1px solid var(--border); padding: 10px 0 2px; margin-top: 8px; }
+.place-endpoints { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 6px; align-items: center; margin: 8px 0; }
+.place-endpoints label { min-width: 0; margin: 0; font-weight: 600; color: var(--text); }
+.place-endpoints button { margin-top: 20px; padding: 5px 7px; }
+.routing-options { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 8px; }
+.place-create-row { flex-wrap: wrap; }
+.random-points-row { align-items: end; }
+.random-points-row label { flex: 1; margin: 0; min-width: 0; }
+.random-points-row input { max-width: 110px; }
+.service-details summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+.service-details[open] summary { margin-bottom: 10px; }
+.service-details { margin-top: 8px; }
 
 .station-radius-field {
   display: block;
   margin: 8px 0 10px;
   padding: 8px 10px;
   border: 1px solid #dbe2ea;
-  border-radius: 8px;
-  background: linear-gradient(180deg, #f8fbff, #f3f7fb);
+  border-radius: 2px;
+  background: #f6f8fa;
 }
 
 .station-radius-header {
@@ -215,11 +225,6 @@ body,
   color: #475569;
 }
 
-.station-radius-note {
-  align-self: flex-end;
-  font-size: 0.75rem;
-  color: #475569;
-}
 
 .points-table tr {
   cursor: pointer;
@@ -273,11 +278,6 @@ body,
   margin-top: 2px;
   font-size: 0.68rem;
   color: #64748b;
-}
-
-.trip-itinerary {
-  white-space: normal;
-  overflow-wrap: anywhere;
 }
 
 .trip-mode {

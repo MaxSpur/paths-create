@@ -7,12 +7,24 @@ export interface TransitRoutingOptions {
   maxAccessDistanceM?: number;
   /** Distance-equivalent preference for fewer boardings; this does not model time. */
   transferPenaltyM?: number;
+  /** Explicit candidate costs support point-to-point routing with validated walking distances. */
+  originStopCosts?: ReadonlyMap<number, number>;
+  destinationStopCosts?: ReadonlyMap<number, number>;
+  walkingWeight?: number;
+  blockedTransferStops?: ReadonlySet<string>;
 }
 
 interface Occurrence { pattern: number; index: number; stop: number; distance: number }
-interface Graph { occurrences: Occurrence[]; board: number[][]; transfers: number[][] }
+interface Graph {
+  occurrences: Occurrence[];
+  board: number[][];
+  transfers: number[][];
+  stopGroups: number[];
+  geometries: Map<string, LonLat[]>;
+  geometryPoints: number;
+}
 interface Step { kind: "ride" | "transfer" | "alight"; from: number; to: number; boarding?: boolean }
-interface Label { node: number; boardings: number; cost: number; previous?: Label; step?: Step }
+interface Label { node: number; boardings: number; cost: number; originGroup?: number; previous?: Label; step?: Step }
 
 const graphs = new WeakMap<TransitNetwork, Graph>();
 
@@ -20,7 +32,14 @@ const graphs = new WeakMap<TransitNetwork, Graph>();
 function graphFor(network: TransitNetwork): Graph {
   const cached = graphs.get(network);
   if (cached) return cached;
+  const groups = new Map<string, number>();
+  const stopGroups = network.stops.map((stop) => {
+    const group = stop.parent ?? stop.id;
+    if (!groups.has(group)) groups.set(group, groups.size);
+    return groups.get(group)!;
+  });
   const graph: Graph = {
+    stopGroups, geometries: new Map(), geometryPoints: 0,
     occurrences: [],
     board: network.stops.map(() => []),
     transfers: network.stops.map(() => [])
@@ -105,6 +124,26 @@ function atCoordinate(stop: TransitStop, coordinate: LonLat): TransitStop {
   return { ...stop, lon: coordinate[0], lat: coordinate[1] };
 }
 
+/** Exact coordinates and line identity preserve branch geometry and preview colors. */
+function shareGeometry(graph: Graph, leg: TransitLeg): void {
+  if (leg.kind !== "transit" || leg.coordinates.length > 50_000) return;
+  const key = JSON.stringify([leg.line?.id, leg.coordinates]);
+  const shared = graph.geometries.get(key);
+  if (shared) {
+    graph.geometries.delete(key);
+    graph.geometries.set(key, shared);
+    leg.coordinates = shared;
+    return;
+  }
+  graph.geometries.set(key, leg.coordinates);
+  graph.geometryPoints += leg.coordinates.length;
+  while (graph.geometries.size > 128 || graph.geometryPoints > 50_000) {
+    const oldest = graph.geometries.keys().next().value!;
+    graph.geometryPoints -= graph.geometries.get(oldest)!.length;
+    graph.geometries.delete(oldest);
+  }
+}
+
 function reconstruct(network: TransitNetwork, graph: Graph, end: Label): TransitJourney {
   const steps: Step[] = [];
   for (let label: Label | undefined = end; label?.previous; label = label.previous) {
@@ -167,6 +206,7 @@ function reconstruct(network: TransitNetwork, graph: Graph, end: Label): Transit
     }
     connected.push(leg);
   });
+  connected.forEach((leg) => shareGeometry(graph, leg));
   return { legs: connected, from: connected[0].from, to: connected[connected.length - 1].to,
     transferCount: end.boardings - 1, networkVersion: network.version };
 }
@@ -180,40 +220,56 @@ export function findTransitJourney(
   const penalty = options.transferPenaltyM ?? 1500;
   if (!Number.isInteger(maxTransfers) || maxTransfers < 0 || !Number.isFinite(radius) || radius < 0 ||
       !Number.isFinite(penalty) || penalty < 0) throw new Error("Invalid transit routing options.");
-  const starts = nearbyStops(network, origin, radius);
-  const ends = nearbyStops(network, destination, radius);
+  const starts = options.originStopCosts ?? nearbyStops(network, origin, radius);
+  const ends = options.destinationStopCosts ?? nearbyStops(network, destination, radius);
+  const automatic = options.originStopCosts !== undefined;
+  const walkingWeight = options.walkingWeight ?? 1;
   if (!starts.size || !ends.size) return null;
   const startStop = network.stops[starts.keys().next().value!];
   const endStop = network.stops[ends.keys().next().value!];
   // A journey within one station needs walking, not a train loop back to it.
-  if ((startStop.parent ?? startStop.id) === (endStop.parent ?? endStop.id)) return null;
+  if (!automatic && (startStop.parent ?? startStop.id) === (endStop.parent ?? endStop.id)) return null;
   const graph = graphFor(network);
   const stopCount = network.stops.length;
   const nodeCount = stopCount + graph.occurrences.length;
+  // Retain distinct origins only for groups shared by both candidate sets. Without
+  // that dimension an invalid station-return loop could suppress a valid journey
+  // that starts at a different nearby station. Distant queries keep the small graph.
+  const endGroups = new Set([...ends.keys()].map((stop) => graph.stopGroups[stop]));
+  const labelKey = (node: number, boardings: number, originGroup?: number): number =>
+    ((originGroup ?? -1) + 1) * (maxTransfers + 2) * nodeCount + boardings * nodeCount + node;
   const labels = new Map<number, Label>();
   const queue = new MinHeap();
-  const add = (node: number, boardings: number, cost: number, previous?: Label, step?: Step): void => {
-    const key = boardings * nodeCount + node;
+  const add = (node: number, boardings: number, cost: number, previous?: Label, step?: Step,
+    originGroup = previous?.originGroup): void => {
+    const key = labelKey(node, boardings, originGroup);
     if (cost >= (labels.get(key)?.cost ?? Infinity)) return;
-    const label: Label = { node, boardings, cost, previous, step };
+    const label: Label = { node, boardings, cost, originGroup, previous, step };
     labels.set(key, label);
     queue.push(label);
   };
-  for (const [stop, distance] of starts) add(stop, 0, distance);
+  for (const [stop, distance] of starts) {
+    const group = graph.stopGroups[stop];
+    add(stop, 0, distance, undefined, undefined, automatic && endGroups.has(group) ? group : undefined);
+  }
   let best: Label | undefined;
   let bestCost = Infinity;
   for (let current = queue.pop(); current; current = queue.pop()) {
     if (current.cost >= bestCost) break;
-    if (labels.get(current.boardings * nodeCount + current.node) !== current) continue;
+    if (labels.get(labelKey(current.node, current.boardings, current.originGroup)) !== current) continue;
     if (current.node < stopCount) {
       const stop = current.node;
       const egress = ends.get(stop);
-      if (current.boardings > 0 && egress !== undefined && current.cost + egress < bestCost) {
+      if (current.boardings > 0 && (!automatic || (current.step?.kind === "alight" && current.originGroup !== graph.stopGroups[stop])) && egress !== undefined && current.cost + egress < bestCost) {
         best = current;
         bestCost = current.cost + egress;
       }
-      for (const to of graph.transfers[stop]) {
-        add(to, current.boardings, current.cost + haversineDistanceM(network.stops[stop], network.stops[to]),
+      // Automatic access is routed directly to the boarding platform; pre-boarding
+      // transfer chains would otherwise bypass the maximum access-walk distance.
+      const transferTargets = (automatic && current.boardings === 0) ||
+        options.blockedTransferStops?.has(network.stops[stop].id) ? [] : graph.transfers[stop];
+      for (const to of transferTargets) {
+        add(to, current.boardings, current.cost + walkingWeight * haversineDistanceM(network.stops[stop], network.stops[to]),
           current, { kind: "transfer", from: stop, to });
       }
       if (current.boardings <= maxTransfers) {

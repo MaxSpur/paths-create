@@ -29,6 +29,7 @@ interface TripSegment {
 }
 
 export interface GpxStationInput {
+  kind?: "area" | "point";
   id: string;
   name: string;
   lat: number;
@@ -47,6 +48,7 @@ export interface GpxPointInput {
 }
 
 export interface GpxTripInput {
+  places?: boolean;
   id: string;
   name: string;
   pairKey?: string;
@@ -190,14 +192,15 @@ function trackToXml(segment: TripSegment, index: number): string {
   </trk>`;
 }
 
-function stationToXml(role: EndpointRole, station: GpxStationInput): string {
-  return `<odc:station${xmlAttrs({
+function stationToXml(role: EndpointRole, station: GpxStationInput, places = false): string {
+  return `<odc:${places ? "place" : "station"}${xmlAttrs({
+    kind: places ? station.kind ?? "area" : undefined,
     role,
     id: station.id,
     name: station.name,
     lat: formatCoord(station.lat),
     lon: formatCoord(station.lon),
-    radiusM: station.radiusM
+    radiusM: places && station.kind === "point" ? undefined : station.radiusM
   })} />`;
 }
 
@@ -389,13 +392,13 @@ export function buildTripGpx(input: GpxTripInput): string {
         id: input.id,
         pairKey: input.pairKey,
         routeMode,
-        schemaVersion: input.transitJourney ? 2 : 1,
+        schemaVersion: input.places ? 3 : input.transitJourney ? 2 : 1,
         networkVersion: input.transitJourney?.networkVersion,
         transferCount: input.transitJourney?.transferCount,
         segmentCount: segments.length
       })}>
-        ${stationToXml("origin", input.originStation)}
-        ${stationToXml("destination", input.destinationStation)}
+        ${stationToXml("origin", input.originStation, input.places)}
+        ${stationToXml("destination", input.destinationStation, input.places)}
         ${pointToXml("origin", input.originPoint)}
         ${pointToXml("destination", input.destinationPoint)}${input.transitJourney ? '\n        <odc:source attribution="Île-de-France Mobilités" license="Licence Mobilité" licenseUrl="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm" geometryAttribution="© OpenStreetMap contributors" geometryLicense="ODbL" geometryLicenseUrl="https://opendatacommons.org/licenses/odbl/1-0/" url="https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/offre-horaires-tc-gtfs-idfm" />' : ""}
       </odc:trip>

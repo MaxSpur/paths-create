@@ -3,7 +3,7 @@ import { DEFAULT_OVERPASS_URL } from "./overpassClient";
 import { clampStationRadiusM } from "./stationRadius";
 
 export const STORAGE_KEY = "odc.generator.state.v1";
-export const STATE_SCHEMA_VERSION = 1;
+export const STATE_SCHEMA_VERSION = 2;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -65,11 +65,16 @@ function normalizeStation(raw: unknown): StationRecord | null {
       };
     });
 
+  const kind = raw.kind === "point" && normalizedPoints.length <= 1 ? "point" : "area";
+  if (kind === "point" && normalizedPoints.length === 0) {
+    normalizedPoints.push({ id: `${raw.id}:point`, lat: raw.lat, lon: raw.lon, label: raw.name, address: undefined, addressStatus: "resolving", tripMode: "metro" });
+  }
   return {
+    kind,
     id: raw.id,
     name: raw.name,
-    lat: raw.lat,
-    lon: raw.lon,
+    lat: kind === "point" ? normalizedPoints[0].lat : raw.lat,
+    lon: kind === "point" ? normalizedPoints[0].lon : raw.lon,
     radiusM: clampStationRadiusM(raw.radiusM),
     walkPoints: normalizedPoints
   };
@@ -107,6 +112,9 @@ function normalizeState(raw: unknown): AppState | null {
     selectedOriginStationId,
     selectedDestinationStationId,
     generation: {
+      routingMode: generation.routingMode === "transit" || generation.routingMode === "driving" ? generation.routingMode : "point_modes",
+      maxAccessDistanceM: isFiniteNumber(generation.maxAccessDistanceM) ? Math.max(100, Math.min(5000, Math.round(generation.maxAccessDistanceM))) : 1500,
+      maxTransfers: isFiniteNumber(generation.maxTransfers) ? Math.max(0, Math.min(3, Math.round(generation.maxTransfers))) : 3,
       tripCount: isFiniteNumber(generation.tripCount)
         ? Math.max(1, Math.round(generation.tripCount))
         : 20,
@@ -162,6 +170,9 @@ export function createDefaultState(): AppState {
     selectedOriginStationId: null,
     selectedDestinationStationId: null,
     generation: {
+      routingMode: "transit",
+      maxAccessDistanceM: 1500,
+      maxTransfers: 3,
       tripCount: 20,
       pairingMode: "round_robin_shuffle"
     },
