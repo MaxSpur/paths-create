@@ -275,6 +275,11 @@ body,
   color: #64748b;
 }
 
+.trip-itinerary {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .trip-mode {
   display: inline-block;
   min-width: 50px;

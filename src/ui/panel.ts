@@ -31,6 +31,7 @@ export interface PanelModel {
   selectedTripId: string | null;
   pointClocks: Record<string, PointClockView>;
   scrollSelectedIntoView?: boolean;
+  scrollSelectedTripIntoView?: boolean;
   generationProgress?: {
     phase: string;
     message: string;
@@ -82,8 +83,8 @@ function pointRow(
   const isSelected = point.id === selectedPointId;
   const label = point.label?.trim() || "Resolving address...";
   const tripMode = point.tripMode === "driving" ? "driving" : "metro";
-  const modeLabel = tripMode === "driving" ? "D" : "M";
-  const modeTitle = tripMode === "driving" ? "Driving direct. Click to use metro." : "Metro route. Click to use driving.";
+  const modeLabel = tripMode === "driving" ? "D" : "T";
+  const modeTitle = tripMode === "driving" ? "Driving direct. Click to use transit." : "Transit route. Click to use driving.";
   return `<tr data-point-id="${escapeHtml(point.id)}" class="${isSelected ? "is-selected" : ""}">
     <td>
       <span class="point-label">${escapeHtml(label)}</span>
@@ -129,13 +130,17 @@ function tripLabel(trip: GeneratedTrip, stations: StationRecord[]): string {
 
 function tripRow(trip: GeneratedTrip, selectedTripId: string | null, stations: StationRecord[]): string {
   const isSelected = trip.id === selectedTripId;
-  const modeLabel = trip.routeMode === "driving" ? "Driving" : "Metro";
+  const modeLabel = trip.routeMode === "driving" ? "Driving" : trip.transitJourney ? "Transit" : "Metro";
+  const journey = trip.transitJourney;
+  const itinerary = journey ? `${journey.legs.filter((leg) => leg.kind === "transit")
+    .map((leg) => `${leg.mode.toUpperCase()} ${leg.line?.name ?? ""}`.trim()).join(" → ")} · ${journey.transferCount} change${journey.transferCount === 1 ? "" : "s"}${journey.legs.some((leg) => leg.geometrySource === "station-connector") ? " · Approximate station connector" : ""}` : "";
   return `<tr data-trip-id="${escapeHtml(trip.id)}" class="${isSelected ? "is-selected" : ""}">
     <td>
       <span class="trip-mode ${trip.routeMode}">${modeLabel}</span>
     </td>
     <td>
       <span class="trip-label">${escapeHtml(tripLabel(trip, stations))}</span>
+      ${itinerary ? `<span class="trip-file trip-itinerary" title="${escapeHtml(itinerary)}">${escapeHtml(itinerary)}</span>` : ""}
       <span class="trip-file">${escapeHtml(trip.fileName)}</span>
     </td>
     <td class="trip-actions">
@@ -262,6 +267,16 @@ function stationCard(station: StationRecord, model: PanelModel): string {
   </div>`;
 }
 
+function transitAttribution(trips: GeneratedTrip[]): string {
+  const versions = [...new Set(trips.flatMap((trip) => trip.transitJourney ? [trip.transitJourney.networkVersion] : []))];
+  if (versions.length === 0) return "";
+  return `<div class="generated-trip-summary">Transit: <a href="https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/offre-horaires-tc-gtfs-idfm" target="_blank" rel="noopener noreferrer">Île-de-France Mobilités</a>
+    (<a href="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm" target="_blank" rel="noopener noreferrer">Licence Mobilité</a>).
+    Shapes: © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener noreferrer">OpenStreetMap contributors</a>
+    (<a href="https://opendatacommons.org/licenses/odbl/1-0/" target="_blank" rel="noopener noreferrer">ODbL</a>).
+    Snapshot: ${escapeHtml(versions.join(", "))}.</div>`;
+}
+
 function progressHtml(model: PanelModel): string {
   const progress = model.generationProgress;
   const report = model.report;
@@ -291,8 +306,8 @@ function progressHtml(model: PanelModel): string {
         ? `<div class="progress-report">
             <div>Requested: ${report.requestedTrips} | Generated: ${report.generatedTrips} | Failed: ${report.failedTrips}</div>
             <div>Unique pairs: ${report.pairingStats.uniquePairsUsed} | Max pair reuse: ${report.pairingStats.maxPairReuse}</div>
-            <div>Reused this session: metro path ${report.reuseStats.metroPath ? "yes" : "no"} | Walking legs ${report.reuseStats.walkingLegs}/${report.reuseStats.walkingLegRequests}</div>
-            <div>Rail setup: ${report.reuseStats.metroPath ? "session cache" : report.serviceStats.overpassFallback ? "documented backup Overpass endpoint" : "configured Overpass endpoint"}</div>
+            <div>Reused this session: rail path ${report.reuseStats.metroPath ? "yes" : "no"} | Walking legs ${report.reuseStats.walkingLegs}/${report.reuseStats.walkingLegRequests}</div>
+            <div>Rail setup: ${report.serviceStats.transitNetwork ? "Île-de-France transit network" : report.reuseStats.metroPath ? "session cache" : report.serviceStats.overpassFallback ? "documented backup Overpass endpoint" : "configured Overpass endpoint"}</div>
             ${failures ? `<ul>${failures}</ul>` : ""}
           </div>`
         : ""
@@ -394,6 +409,7 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
 
     <section>
       <h2>Generated Trips</h2>
+      ${transitAttribution(model.generatedTrips)}
       <div class="generated-trip-summary">${model.generatedTrips.length} trip${model.generatedTrips.length === 1 ? "" : "s"} in list</div>
       <div class="btn-row">
         <button id="download" type="button" ${model.canDownload ? "" : "disabled"}>Download GPX ZIP</button>
@@ -533,12 +549,16 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
   }
   container.querySelector<HTMLButtonElement>("#resetAll")?.addEventListener("click", callbacks.onResetAll);
 
-  if (model.scrollSelectedIntoView && model.selectedPointId) {
+  restorePanelScroll(container, scrollState);
+  if (model.scrollSelectedTripIntoView && model.selectedTripId) {
+    const selectedRow = Array.from(container.querySelectorAll<HTMLElement>("tr[data-trip-id]")).find(
+      (row) => row.dataset.tripId === model.selectedTripId
+    );
+    selectedRow?.scrollIntoView({ block: "nearest" });
+  } else if (model.scrollSelectedIntoView && model.selectedPointId) {
     const selectedRow = Array.from(container.querySelectorAll<HTMLElement>("tr[data-point-id]")).find(
       (row) => row.dataset.pointId === model.selectedPointId
     );
     selectedRow?.scrollIntoView({ block: "nearest" });
-  } else {
-    restorePanelScroll(container, scrollState);
   }
 }

@@ -1,3 +1,5 @@
+import type { TransitJourney } from "./transitTypes";
+
 export type PairingMode = "round_robin_shuffle";
 export type PointTripMode = "metro" | "driving";
 export type TripRouteMode = "metro" | "driving";
@@ -79,6 +81,7 @@ export interface GeneratedTrip {
   destinationPoint: WalkPoint;
   walkInCoords: LonLat[];
   metroCoords: LonLat[];
+  transitJourney?: TransitJourney;
   walkOutCoords: LonLat[];
   drivingCoords: LonLat[];
 }
@@ -104,6 +107,7 @@ export interface GenerationReport {
   };
   serviceStats: {
     overpassFallback: boolean;
+    transitNetwork?: boolean;
   };
 }
 

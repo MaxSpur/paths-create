@@ -1,16 +1,17 @@
 import { haversineDistanceM, toLatLon } from "./geo";
 import type { LonLat, StructuredAddress, TripRouteMode, WalkPoint } from "./types";
+import type { TransitJourney, TransitLeg, TransitMode } from "./transitTypes";
 
 const ODC_GPX_NAMESPACE = "https://www.maximspur.com/origin-destination-creator/gpx/1";
 
-type SegmentRole = "walk-in" | "metro" | "walk-out" | "driving";
-type SegmentMode = "walking" | "metro" | "driving";
-type EndpointKind = "point" | "station";
+type SegmentRole = "walk-in" | "metro" | "walk-out" | "driving" | "transit" | "transfer";
+type SegmentMode = "walking" | "driving" | TransitMode;
+type EndpointKind = "point" | "station" | "stop";
 type EndpointRole = "origin" | "destination";
 
 interface SegmentEndpoint {
   kind: EndpointKind;
-  role: EndpointRole;
+  role: EndpointRole | "boarding" | "alighting";
   ref: string;
   name?: string;
 }
@@ -23,6 +24,8 @@ interface TripSegment {
   from: SegmentEndpoint;
   to: SegmentEndpoint;
   coords: LonLat[];
+  transitLeg?: TransitLeg;
+  geometrySource?: TransitLeg["geometrySource"];
 }
 
 export interface GpxStationInput {
@@ -56,6 +59,7 @@ export interface GpxTripInput {
   metro: LonLat[];
   walkOut: LonLat[];
   driving?: LonLat[];
+  transitJourney?: TransitJourney;
 }
 
 function escapeXml(value: string): string {
@@ -136,7 +140,12 @@ function segmentMetadataToXml(segment: TripSegment, index: number, distanceM: st
     role: segment.role,
     mode: segment.mode,
     pointCount: segment.coords.length,
-    distanceM
+    distanceM,
+    geometrySource: segment.geometrySource,
+    lineId: segment.transitLeg?.line?.id,
+    lineName: segment.transitLeg?.line?.name,
+    boardingStopId: segment.transitLeg?.from.id,
+    alightingStopId: segment.transitLeg?.to.id
   })}>
         ${endpointToXml(segment.from, "odc:from")}
         ${endpointToXml(segment.to, "odc:to")}
@@ -149,7 +158,12 @@ function segmentRefToXml(segment: TripSegment, index: number, distanceM: string)
     role: segment.role,
     mode: segment.mode,
     pointCount: segment.coords.length,
-    distanceM
+    distanceM,
+    geometrySource: segment.geometrySource,
+    lineId: segment.transitLeg?.line?.id,
+    lineName: segment.transitLeg?.line?.name,
+    boardingStopId: segment.transitLeg?.from.id,
+    alightingStopId: segment.transitLeg?.to.id
   })} />`;
 }
 
@@ -264,6 +278,37 @@ function buildSegments(input: GpxTripInput): TripSegment[] {
     ];
   }
 
+  if (input.transitJourney) {
+    const journey = input.transitJourney;
+    const access = (role: "walk-in" | "walk-out"): TripSegment => {
+      const inbound = role === "walk-in";
+      const stop = inbound ? journey.from : journey.to;
+      const point = inbound ? input.originPoint : input.destinationPoint;
+      const pointEndpoint: SegmentEndpoint = {
+        kind: "point", role: inbound ? "origin" : "destination",
+        ref: point?.id ?? (inbound ? "origin-point" : "destination-point"), name: pointName(point)
+      };
+      const stopEndpoint: SegmentEndpoint = {
+        kind: "stop", role: inbound ? "boarding" : "alighting", ref: stop.id, name: stop.name
+      };
+      return {
+        role, mode: "walking", name: `${input.name} - ${role}`,
+        description: inbound ? `Walking route from ${pointName(point)} to ${stop.name}.`
+          : `Walking route from ${stop.name} to ${pointName(point)}.`,
+        from: inbound ? pointEndpoint : stopEndpoint, to: inbound ? stopEndpoint : pointEndpoint,
+        coords: inbound ? input.walkIn : input.walkOut, geometrySource: "ors"
+      };
+    };
+    return [access("walk-in"), ...journey.legs.map((leg): TripSegment => ({
+      role: leg.kind, mode: leg.mode,
+      name: `${input.name} - ${leg.line ? `${leg.mode.toUpperCase()} ${leg.line.name}` : "walking transfer"}`,
+      description: `${leg.line ? `${leg.mode.toUpperCase()} ${leg.line.name}` : "Walking transfer"} from ${leg.from.name} to ${leg.to.name}.${leg.geometrySource === "station-connector" ? " Approximate station connector; not a routed pedestrian path." : ""}`,
+      from: { kind: "stop", role: "boarding", ref: leg.from.id, name: leg.from.name },
+      to: { kind: "stop", role: "alighting", ref: leg.to.id, name: leg.to.name },
+      coords: leg.coordinates, transitLeg: leg, geometrySource: leg.geometrySource
+    })), access("walk-out")].filter((segment) => segment.coords.length > 0);
+  }
+
   const segments: TripSegment[] = [
     {
       role: "walk-in",
@@ -344,13 +389,15 @@ export function buildTripGpx(input: GpxTripInput): string {
         id: input.id,
         pairKey: input.pairKey,
         routeMode,
-        schemaVersion: 1,
+        schemaVersion: input.transitJourney ? 2 : 1,
+        networkVersion: input.transitJourney?.networkVersion,
+        transferCount: input.transitJourney?.transferCount,
         segmentCount: segments.length
       })}>
         ${stationToXml("origin", input.originStation)}
         ${stationToXml("destination", input.destinationStation)}
         ${pointToXml("origin", input.originPoint)}
-        ${pointToXml("destination", input.destinationPoint)}
+        ${pointToXml("destination", input.destinationPoint)}${input.transitJourney ? '\n        <odc:source attribution="Île-de-France Mobilités" license="Licence Mobilité" licenseUrl="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm" geometryAttribution="© OpenStreetMap contributors" geometryLicense="ODbL" geometryLicenseUrl="https://opendatacommons.org/licenses/odbl/1-0/" url="https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/offre-horaires-tc-gtfs-idfm" />' : ""}
       </odc:trip>
     </extensions>
   </metadata>

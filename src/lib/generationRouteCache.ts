@@ -1,4 +1,5 @@
 import type { LonLat } from "./types";
+import type { TransitJourney } from "./transitTypes";
 
 export interface CachedMetroSetup {
   railCoordinates: LonLat[];
@@ -39,6 +40,15 @@ export class GenerationRouteCache {
   private readonly metroSetups = new BoundedLruCache<CachedMetroSetup>(16);
 
   private readonly walkingLegs = new BoundedLruCache<LonLat[]>(512);
+  private readonly transitJourneys = new BoundedLruCache<TransitJourney>(16);
+
+  getTransitJourney(key: string): TransitJourney | undefined {
+    return this.transitJourneys.get(key);
+  }
+
+  setTransitJourney(key: string, journey: TransitJourney): void {
+    this.transitJourneys.set(key, journey);
+  }
 
   getMetroSetup(key: string): CachedMetroSetup | undefined {
     return this.metroSetups.get(key);
@@ -59,6 +69,7 @@ export class GenerationRouteCache {
   clear(): void {
     this.metroSetups.clear();
     this.walkingLegs.clear();
+    this.transitJourneys.clear();
   }
 }
 

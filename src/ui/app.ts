@@ -8,6 +8,7 @@ import { pairKey } from "../lib/pairing";
 import { samplePointsWithinRadius } from "../lib/sampling";
 import { clampStationRadiusM, DEFAULT_STATION_RADIUS_M } from "../lib/stationRadius";
 import { createStateStore } from "../lib/stateStore";
+import { isInTransitRegion, loadTransitNetwork } from "../lib/transitNetwork";
 import type { GenerationProgressUpdate } from "../lib/generator";
 import type { GeneratedTrip, GenerationReport, LatLon, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import { resolveMapClickAction, type EditMode } from "./interaction";
@@ -57,6 +58,7 @@ export function createApp(root: HTMLElement): void {
   let nextGeneratedTripNumber = 1;
   let generationProgress: UiGenerationProgress | null = null;
   let scrollSelectedIntoView = false;
+  let scrollSelectedTripIntoView = false;
   const pointAddressTimers = new Map<string, number>();
   const pointClockStates = new Map<string, PointClockState>();
   let pointClockTicker: number | null = null;
@@ -248,6 +250,7 @@ export function createApp(root: HTMLElement): void {
     store.getState().ui.mapCenter,
     store.getState().ui.mapZoom,
     {
+      onTripClick: (tripId) => selectGeneratedTrip(tripId, true),
       onMapClick: (point) => {
         const state = store.getState();
         const action = resolveMapClickAction({
@@ -678,6 +681,17 @@ export function createApp(root: HTMLElement): void {
     render();
 
     try {
+      const hasTransitPairs = origin.walkPoints.some((point) => point.tripMode !== "driving")
+        && destination.walkPoints.some((point) => point.tripMode !== "driving");
+      let transitNetwork;
+      let transitNetworkError: string | undefined;
+      if (hasTransitPairs && state.orsApiKey.trim() && isInTransitRegion(origin) && isInTransitRegion(destination)) {
+        try {
+          transitNetwork = await loadTransitNetwork();
+        } catch (error) {
+          transitNetworkError = error instanceof Error ? error.message : "Unable to load the transit network.";
+        }
+      }
       const result = await generateTrips({
         orsApiKey: state.orsApiKey,
         overpassUrl: state.overpassUrl,
@@ -688,6 +702,8 @@ export function createApp(root: HTMLElement): void {
         excludedPairKeys,
         startingTripNumber: nextGeneratedTripNumber,
         routeCache: generationRouteCache,
+        transitNetwork,
+        transitNetworkError,
         onProgress: (update) => {
           applyGenerationProgress(update);
           if (generationProgress && !updateGenerationProgress(panelElement, generationProgress)) {
@@ -738,7 +754,7 @@ export function createApp(root: HTMLElement): void {
     render();
   };
 
-  const selectGeneratedTrip = (tripId: string) => {
+  const selectGeneratedTrip = (tripId: string, fromMap = false) => {
     const trip = generatedTrips.find((item) => item.id === tripId);
     if (!trip) {
       selectedTripId = null;
@@ -747,8 +763,9 @@ export function createApp(root: HTMLElement): void {
       return;
     }
 
-    selectedTripId = selectedTripId === tripId ? null : tripId;
-    if (selectedTripId) {
+    selectedTripId = !fromMap && selectedTripId === tripId ? null : tripId;
+    scrollSelectedTripIntoView = fromMap;
+    if (selectedTripId && !fromMap) {
       map.focusOnTrip(trip);
     }
     statusText = selectedTripId ? "Generated trip selected." : "Generated trip deselected.";
@@ -833,6 +850,7 @@ export function createApp(root: HTMLElement): void {
         selectedTripId,
         pointClocks,
         scrollSelectedIntoView,
+        scrollSelectedTripIntoView,
         generationProgress: generationProgress ?? undefined,
         report: lastGenerationReport ?? undefined,
         canDownload: generatedTrips.length > 0,
@@ -940,6 +958,7 @@ export function createApp(root: HTMLElement): void {
       }
     );
     scrollSelectedIntoView = false;
+    scrollSelectedTripIntoView = false;
   };
 
   const render = createRenderScheduler(renderNow);

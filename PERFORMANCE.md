@@ -16,7 +16,9 @@ Run `npm run benchmark` for offline rail-graph and panel-DOM fixtures. Establish
 - Metro trips share coordinate arrays: deduplicate base preview segments by identity, then add one selected-trip overlay.
 - Rail graphs use spatial lookup for snapping, lazy shortest-path state and linear path reconstruction.
 - Load JSZip on download, outside the initial payload.
+- Lazy-load the transit router and 3.80 MB regional JSON on first transit generation. The startup gate excludes this deferred dataset; `idfmTransit.test.ts` checks its structure and reference journeys. Rebuild statistics and source hash live in its manifest.
 - `generationRouteCache.ts` bounds page-session reuse to 16 metro setups and 512 walking legs. Keys include exact ordered coordinates and applicable endpoint/profile/query parameters. Reset/reload clears it. Cache valid geometry only; successful rail geometry survives an elevation failure so elevation can be retried later.
+- It also retains 16 resolved transit itineraries keyed by snapshot version/station coordinates. The immutable network's routing graph is reused; per-trip access connectors retain shared rail arrays.
 - Search shares the Nominatim limiter; priority/cache improvements cannot guarantee live response time.
 
 ## Browser acceptance fixture

@@ -7,6 +7,8 @@ import { createSeededRandom } from "./sampling";
 import { OrsClient } from "./orsClient";
 import { buildRailGraph, nodePathToCoordinates, shortestPath, snapToNearestNode } from "./railGraph";
 import { buildTripGpx } from "./gpxWriter";
+import type { TransitJourney, TransitNetwork } from "./transitTypes";
+import { routeOutdoorTransfers, withStationAccess } from "./transitWalking";
 import type {
   GenerationFailure,
   GenerationResult,
@@ -36,6 +38,8 @@ export interface GenerateTripsInput {
   railPaddingM?: number;
   onProgress?: (update: GenerationProgressUpdate) => void;
   routeCache?: GenerationRouteCache;
+  transitNetwork?: TransitNetwork;
+  transitNetworkError?: string;
 }
 
 function stationPoint(station: StationRecord): LatLon {
@@ -242,8 +246,43 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   let reusedMetroPath = false;
   let reusedWalkingLegs = 0;
   let usedOverpassFallback = false;
+  let transitJourney: TransitJourney | undefined;
 
-  if (needsMetro) {
+  if (needsMetro && input.transitNetworkError) {
+    metroUnavailable = { code: "TRANSIT_NETWORK_UNAVAILABLE", message: input.transitNetworkError };
+  }
+  if (needsMetro && input.transitNetwork) {
+    emitProgress({ phase: "setup", message: "Finding transit lines and interchanges", current: 2, total: 6 });
+    const key = `transit:v1|${input.transitNetwork.version}|${coordinateKey(input.originStation)}|${coordinateKey(input.destinationStation)}`;
+    transitJourney = input.routeCache?.getTransitJourney(key);
+    reusedMetroSetup = Boolean(transitJourney);
+    if (!transitJourney) {
+      const { findTransitJourney } = await import("./transitRouter");
+      const itinerary = findTransitJourney(input.transitNetwork, input.originStation, input.destinationStation);
+      if (!itinerary) {
+        metroUnavailable = {
+          code: "NO_TRANSIT_PATH",
+          message: "No plausible transit itinerary within three changes was found near these stations in the Île-de-France snapshot. Check station locations and network coverage."
+        };
+      } else {
+        try {
+          transitJourney = await routeOutdoorTransfers(itinerary, async (from, to) => {
+            const walkKey = walkingLegCacheKey(from, to);
+            const cached = input.routeCache?.getWalkingLeg(walkKey);
+            if (cached) return cached;
+            const coordinates = await orsClient.getWalkingRoute(from, to);
+            if (coordinates.length > 1) input.routeCache?.setWalkingLeg(walkKey, coordinates);
+            return coordinates;
+          });
+          input.routeCache?.setTransitJourney(key, transitJourney);
+        } catch (error) {
+          metroUnavailable = { code: "TRANSFER_WALK_FAILED", message: getErrorMessage(error) };
+        }
+      }
+    }
+  }
+
+  if (needsMetro && !input.transitNetwork && !input.transitNetworkError) {
     const railPaddingM = input.railPaddingM ?? 1800;
     const maxSnapDistanceM = input.maxSnapDistanceM ?? 200;
     const metroCacheKey = metroPathCacheKey(
@@ -330,7 +369,9 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
 
   emitProgress({
     phase: "setup",
-    message: needsMetro
+    message: input.transitNetwork && needsMetro
+      ? "Preparing transit access and egress"
+      : needsMetro
       ? reusedMetroPath
         ? "Reusing metro path from this session"
         : "Draping metro path elevation"
@@ -338,7 +379,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     current: 5,
     total: 6
   });
-  if (needsMetro && !metroUnavailable && metroCoords.length > 0) {
+  if (needsMetro && !input.transitNetwork && !metroUnavailable && metroCoords.length > 0) {
     if (!reusedMetroPath) {
       try {
         const railCoordinates = metroCoords;
@@ -396,7 +437,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       buildWalkLegs(
         orsClient,
         uniqueOrigins,
-        stationPoint(input.originStation),
+        transitJourney?.from ?? stationPoint(input.originStation),
         false,
         (completed) => {
           walkInCompleted = completed;
@@ -407,7 +448,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       buildWalkLegs(
         orsClient,
         uniqueDestinations,
-        stationPoint(input.destinationStation),
+        transitJourney?.to ?? stationPoint(input.destinationStation),
         true,
         (completed) => {
           walkOutCompleted = completed;
@@ -535,6 +576,16 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       continue;
     }
 
+    let tripTransitJourney: TransitJourney | undefined;
+    if (transitJourney) {
+      try {
+        tripTransitJourney = withStationAccess(transitJourney, walkIn, walkOut);
+      } catch (error) {
+        addFailure(failures, "STATION_ACCESS_FAILED", getErrorMessage(error));
+        continue;
+      }
+    }
+
     const gpx = buildTripGpx({
       id: tripId,
       name: tripName,
@@ -546,7 +597,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       destinationPoint: pair.destination,
       walkIn,
       metro: metroCoords,
-      walkOut
+      walkOut,
+      transitJourney: tripTransitJourney
     });
 
     trips.push({
@@ -560,7 +612,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       walkInCoords: walkIn,
       metroCoords,
       walkOutCoords: walkOut,
-      drivingCoords: []
+      drivingCoords: [],
+      transitJourney: tripTransitJourney
     });
 
     emitProgress({
@@ -595,7 +648,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         walkingLegRequests: totalWalkRequests
       },
       serviceStats: {
-        overpassFallback: usedOverpassFallback
+        overpassFallback: usedOverpassFallback,
+        ...((input.transitNetwork || input.transitNetworkError) && needsMetro ? { transitNetwork: true } : {})
       }
     }
   };

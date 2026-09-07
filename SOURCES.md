@@ -4,6 +4,9 @@ References by topic. Service/runtime links were reviewed 2026-08-08 and GitHub A
 
 ## Routing And Elevation
 
+- [IDFM GTFS resource](https://transport.data.gouv.fr/resources/80921?locale=fr) and [official format documentation](https://eu.ftp.opendatasoft.com/stif/GTFS/opendata_gtfs.pdf) — reviewed 2026-09-07 for service patterns, shapes and transfers. Snapshot hash/coverage and distinct data licenses are in [the dataset notice](public/data/idfm-transit.LICENSE.md).
+- [GTFS reference](https://gtfs.org/documentation/schedule/reference/) — directed stop sequences, pickup/dropoff rules, transfers and pathways. Transfer pairs do not supply corridor geometry.
+
 - [openrouteservice API](https://api.openrouteservice.org/) — production API surface.
 - [Directions API reference](https://giscience.github.io/openrouteservice/api-reference/endpoints/directions/) — profiles, request shapes, alternatives, and elevation options.
 - [openrouteservice dashboard](https://openrouteservice.org/dev/) — user key management.

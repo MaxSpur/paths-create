@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PanelCallbacks, PanelModel } from "../ui/panel";
 import { renderPanel, updateGenerationProgress, updatePointClocks } from "../ui/panel";
+
+import { transitJourneyFixture } from "./transitJourneyFixture";
 
 function createCallbacks(): PanelCallbacks {
   const noop = () => undefined;
@@ -337,6 +339,7 @@ describe("renderPanel", () => {
       generatedTrips: [
         {
           id: "trip-1",
+          transitJourney: transitJourneyFixture(),
           pairKey: "origin::destination",
           fileName: "trip-1.gpx",
           gpx: "<gpx />",
@@ -357,6 +360,11 @@ describe("renderPanel", () => {
     renderPanel(container, model, callbacks);
 
     expect(container.querySelector(".trips-table")).not.toBeNull();
+    expect(container.querySelector(".trip-mode")?.textContent).toBe("Transit");
+    expect(container.textContent).toContain("Snapshot: fixture-1");
+    expect(container.querySelector('a[href="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm"]')?.textContent).toBe("Licence Mobilité");
+    expect(container.textContent).toContain("METRO 5 <&> → RER A · 1 change · Approximate station connector");
+    expect(container.querySelector(".trip-label")?.querySelector("script")).toBeNull();
     expect(container.querySelector("tr[data-trip-id='trip-1']")?.className).toContain("is-selected");
     expect(container.querySelector(".trip-label")?.textContent).toBe("Resolved origin -> Resolved destination");
 
@@ -367,5 +375,27 @@ describe("renderPanel", () => {
     expect(selectedTrips).toEqual(["trip-1"]);
     expect(deletedTrips).toEqual(["trip-1"]);
     expect(deleteAllClicked).toBe(true);
+
+    const scrolled: HTMLElement[] = [];
+    const originalScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollIntoView");
+    const scroll = vi.fn(function (this: HTMLElement) { scrolled.push(this); });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll });
+    try {
+      const unusualId = 'trip"[data-point-id="x]';
+      model.generatedTrips[0].id = unusualId;
+      model.selectedTripId = unusualId;
+      model.scrollSelectedTripIntoView = true;
+      renderPanel(container, model, callbacks);
+      expect(scrolled).toEqual([container.querySelector("tr[data-trip-id]")]);
+      expect(scrolled[0].classList.contains("is-selected")).toBe(true);
+      expect(scroll).toHaveBeenCalledWith({ block: "nearest" });
+      model.scrollSelectedTripIntoView = false;
+      renderPanel(container, model, callbacks);
+      expect(scroll).toHaveBeenCalledTimes(1);
+    } finally {
+      if (originalScroll) Object.defineProperty(HTMLElement.prototype, "scrollIntoView", originalScroll);
+      else Reflect.deleteProperty(HTMLElement.prototype, "scrollIntoView");
+    }
+
   });
 });

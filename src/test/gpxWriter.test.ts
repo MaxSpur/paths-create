@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { buildTripGpx } from "../lib/gpxWriter";
 
+import { transitJourneyFixture } from "./transitJourneyFixture";
+
 const ODC_NS = "https://www.maximspur.com/origin-destination-creator/gpx/1";
 
 const originStation = {
@@ -63,6 +65,45 @@ function parseGpx(gpx: string): XMLDocument {
 }
 
 describe("buildTripGpx", () => {
+  it("exports ordered transit and transfer tracks with line identity and geometry provenance", () => {
+    const journey = transitJourneyFixture();
+    const doc = parseGpx(buildTripGpx({
+      id: "transfer-trip", name: "Transit trip", routeMode: "metro",
+      originStation, destinationStation, originPoint, destinationPoint,
+      walkIn: [[2.401, 48.901], [2.4, 48.9]], metro: [[99, 99]],
+      walkOut: [[2.58, 48.84], [2.581, 48.841]], transitJourney: journey
+    }));
+    const trip = doc.getElementsByTagNameNS(ODC_NS, "trip")[0];
+    const segments = Array.from(doc.getElementsByTagNameNS(ODC_NS, "segment"));
+    const refs = Array.from(doc.getElementsByTagNameNS(ODC_NS, "segmentRef"));
+    expect(trip.getAttribute("schemaVersion")).toBe("2");
+    expect(trip.getAttribute("networkVersion")).toBe("fixture-1");
+    expect(trip.getAttribute("transferCount")).toBe("1");
+    expect(segments.map((segment) => segment.getAttribute("role"))).toEqual([
+      "walk-in", "transit", "transfer", "transit", "walk-out"
+    ]);
+    expect(Array.from(doc.getElementsByTagName("type")).map((node) => node.textContent))
+      .toEqual(["walking", "metro", "walking", "rer", "walking"]);
+    expect(doc.getElementsByTagName("trkpt")).toHaveLength(10);
+    expect(doc.querySelector('trkpt[lat="99.0000000"]')).toBeNull();
+    expect(segments[1].getAttribute("lineId")).toBe('line-"5');
+    expect(segments[1].getAttribute("lineName")).toBe("5 <&>");
+    expect(segments[1].getAttribute("boardingStopId")).toBe("stop-origin");
+    expect(segments[1].getAttribute("alightingStopId")).toBe("stop-change-1");
+    expect(segments[2].getAttribute("geometrySource")).toBe("station-connector");
+    expect(segments[2].getAttribute("lineId")).toBeNull();
+    expect(segments[0].getElementsByTagNameNS(ODC_NS, "to")[0].getAttribute("ref")).toBe("stop-origin");
+    for (let i = 0; i < segments.length; i += 1) {
+      for (const attribute of ["role", "mode", "distanceM", "pointCount", "geometrySource", "lineId"]) {
+        expect(refs[i].getAttribute(attribute)).toBe(segments[i].getAttribute(attribute));
+      }
+    }
+    expect(doc.getElementsByTagNameNS(ODC_NS, "source")[0].getAttribute("geometryLicense")).toBe("ODbL");
+    expect(doc.getElementsByTagNameNS(ODC_NS, "source")[0].getAttribute("licenseUrl")).toBe("https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm");
+    expect(doc.getElementsByTagNameNS(ODC_NS, "source")[0].getAttribute("geometryLicenseUrl")).toBe("https://opendatacommons.org/licenses/odbl/1-0/");
+    expect(doc.getElementsByTagName("desc")[3].textContent).toContain("Approximate station connector");
+  });
+
   it("creates parseable metro GPX with one labeled track per transport leg", () => {
     const gpx = buildTripGpx({
       id: "t1",
@@ -98,6 +139,7 @@ describe("buildTripGpx", () => {
     expect(segments).toHaveLength(3);
     expect(trackTypes).toEqual(["walking", "metro", "walking"]);
     expect(doc.getElementsByTagName("ele")).toHaveLength(6);
+    expect(trip?.getAttribute("schemaVersion")).toBe("1");
     expect(trip?.getAttribute("routeMode")).toBe("metro");
     expect(trip?.getAttribute("segmentCount")).toBe("3");
     expect(odcSegments.map((segment) => segment.getAttribute("role"))).toEqual([

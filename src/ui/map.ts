@@ -5,6 +5,7 @@ import { rankLocationSearchResults, type RankedLocationSearchResult } from "./lo
 import { collectPreviewSegments, type PreviewSegment } from "./previewSegments";
 
 export interface MapCallbacks {
+  onTripClick: (tripId: string) => void;
   onMapClick: (point: LatLon) => void;
   onStationClick: (stationId: string) => void;
   onPointClick: (stationId: string, pointId: string) => void;
@@ -43,7 +44,7 @@ function pointMarkerColors(point: { tripMode?: "metro" | "driving" }, isSelected
 function tripCoordinates(trip: GeneratedTrip): LonLat[] {
   return trip.routeMode === "driving"
     ? trip.drivingCoords
-    : [...trip.walkInCoords, ...trip.metroCoords, ...trip.walkOutCoords];
+    : [...trip.walkInCoords, ...(trip.transitJourney ? trip.transitJourney.legs.flatMap((leg) => leg.coordinates) : trip.metroCoords), ...trip.walkOutCoords];
 }
 
 function stationRenderKey(model: MapRenderModel): string {
@@ -399,7 +400,7 @@ export class MapView {
             weight: isSelected ? 2.2 : 1.5,
             bubblingMouseEvents: false
           });
-          marker.bindTooltip(`${point.tripMode === "driving" ? "Driving" : "Metro"}: ${point.label || point.id}`, { direction: "top" });
+          marker.bindTooltip(`${point.tripMode === "driving" ? "Driving" : "Transit"}: ${point.label || point.id}`, { direction: "top" });
           marker.on("click", (event: L.LeafletMouseEvent) => {
             L.DomEvent.stop(event);
             this.callbacks.onPointClick(activeStation.id, point.id);
@@ -427,18 +428,27 @@ export class MapView {
     const styles: Record<PreviewSegment["role"], { color: string; weight: number }> = {
       "walk-in": { color: "#2f855a", weight: 3.4 },
       metro: { color: "#1d4ed8", weight: 3.6 },
+      transit: { color: "#1d4ed8", weight: 3.6 },
+      transfer: { color: "#64748b", weight: 3.4 },
       "walk-out": { color: "#b45309", weight: 3.4 },
       driving: { color: "#7c3aed", weight: 3.7 }
     };
     const style = styles[segment.role];
     const baseOpacity = hasSelectedTrip ? 0.22 : 0.82;
 
-    L.polyline(segment.coords.map((coord) => L.latLng(coord[1], coord[0])), {
-      color: style.color,
+    const line = L.polyline(segment.coords.map((coord) => L.latLng(coord[1], coord[0])), {
+      color: segment.color && /^#?[0-9a-f]{6}$/i.test(segment.color)
+        ? `#${segment.color.replace(/^#/, "")}` : style.color,
+      bubblingMouseEvents: false,
+      dashArray: segment.dashed ? "6 5" : undefined,
       weight: style.weight + (segment.highlighted ? 2.1 : 0),
       opacity: segment.highlighted
         ? segment.role === "metro" ? 0.98 : 0.96
         : segment.role === "metro" ? Math.min(0.84, baseOpacity) : baseOpacity
     }).addTo(this.previewLayer);
+    line.on("click", (event: L.LeafletMouseEvent) => {
+      L.DomEvent.stop(event);
+      this.callbacks.onTripClick(segment.tripId);
+    });
   }
 }

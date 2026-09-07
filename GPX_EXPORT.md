@@ -10,9 +10,15 @@ xmlns:odc="https://www.maximspur.com/origin-destination-creator/gpx/1"
 
 ## Track Structure
 
+New Île-de-France itineraries use trip `schemaVersion="2"`: access walk, ordered transit/transfer legs, then exit walk. Transit track types are `metro`, `rer`, `train` or `tram`; transfer tracks use `walking`. Segment roles distinguish `transit` and `transfer`. Each leg has stop references; transit legs also carry line ID/name. `geometrySource` distinguishes `gtfs`, `ors` and approximate `station-connector` geometry. These fields are repeated consistently on `odc:segment` and `odc:segmentRef`.
+
+Schema 2 trip metadata includes `networkVersion`, `transferCount` and data attribution/license URLs. The legacy trip `routeMode="metro"` and namespace remain compatible with saved point modes; readers must use track modes for actual transport type. No departure times or durations are synthesized. The standard metadata time is file creation time.
+
+Driving and legacy OSM itineraries keep schema 1 below. Consumers supporting only schema 1 must explicitly reject or handle schema 2 rather than assume three tracks.
+
 Each exported file contains one trip.
 
-Metro trips contain three GPX tracks when all legs are present:
+Legacy OSM metro trips contain three GPX tracks when all legs are present:
 
 1. `<trk><type>walking</type>` with `odc:segment role="walk-in"`.
 2. `<trk><type>metro</type>` with `odc:segment role="metro"`.
