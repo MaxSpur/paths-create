@@ -26,3 +26,5 @@ Logs/
 
 # Local routing runtime, data and graphs
 .local-ors/
+
+.benchmark-output/

@@ -9,6 +9,7 @@ Read only the relevant document or section; verify changing facts in source and 
 - [ARCHITECTURE.md](ARCHITECTURE.md): module ownership, state, generation, build/deploy.
 - [LESSONS.md](LESSONS.md): regression traps for map, panel, async, or setup changes.
 - [PERFORMANCE.md](PERFORMANCE.md): rendering, routing, caching, bundle work, and smoke fixture.
+- [PARQUET_EXPORT.md](PARQUET_EXPORT.md): experimental batch export, schema and measured comparisons.
 - [GPX_EXPORT.md](GPX_EXPORT.md): exported XML changes.
 - [SOURCES.md](SOURCES.md): external service policy or infrastructure assumptions.
 - [TODO.md](TODO.md): choosing follow-up work; the current request defines scope.

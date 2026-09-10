@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GeoParquet export experiment</title>
+<style>body{font:15px system-ui;margin:32px;max-width:760px;color:#173344}button,select{font:inherit;padding:8px;border:1px solid #526c7c;background:#fff;margin-right:8px}pre{white-space:pre-wrap;background:#eef3f5;padding:16px}button:disabled{opacity:.5}</style>
+<h1>GeoParquet export experiment</h1>
+<p>Developer fixture: bundled transit subpaths with synthetic access legs. This does not change saved app data or call routing services. All file writing and verification run in a worker.</p>
+<label>Trips <select id="count"><option>100</option><option selected>1000</option><option>10000</option></select></label>
+<button id="run">Run export test</button><button id="download" disabled>Download verified Parquet</button>
+<pre id="result" aria-live="polite">Ready.</pre>
+<script type="module">
+const run = document.querySelector('#run'), download = document.querySelector('#download'), result = document.querySelector('#result');
+let bytes;
+run.onclick = () => {
+  run.disabled = true; download.disabled = true; bytes = undefined;
+  const worker = new Worker(new URL('./parquet.worker.ts', import.meta.url), {type:'module'});
+  const finish = () => {worker.terminate(); run.disabled = false;};
+  worker.onerror = event => {result.textContent = event.message; finish();};
+  worker.onmessage = ({data}) => {
+    if (data.status) result.textContent = data.status;
+    if (data.error) {result.textContent = data.error; finish();}
+    if (data.done) {
+      bytes = data.bytes;
+      result.textContent = JSON.stringify({trips:data.trips, legs:data.legs, points:data.points, bytes:bytes.length, exportMs:Math.round(data.exportMs), exactGeometryRoundTrip:true}, null, 2);
+      download.disabled = false; finish();
+    }
+  };
+  worker.postMessage(Number(document.querySelector('#count').value));
+};
+download.onclick = () => {
+  const url = URL.createObjectURL(new Blob([bytes], {type:'application/vnd.apache.parquet'}));
+  const link = document.createElement('a'); link.href = url; link.download = 'fixture-paths.parquet'; link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+const params = new URLSearchParams(location.search);
+if (['100','1000','10000'].includes(params.get('count'))) document.querySelector('#count').value = params.get('count');
+if (params.get('run') === '1') run.click();
+</script>
+</html>

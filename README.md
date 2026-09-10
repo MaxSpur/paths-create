@@ -89,6 +89,10 @@ npm run ors:status
 
 `install` downloads and verifies the pinned server and IDF map (~425 MB); the measured installation with graphs uses ~1.18 GiB. `start` runs ORS in the background; wait for status `ready`, then choose **Service settings → Routing service → Local ORS**. No API key is needed. The first run builds graphs; later starts load them. This setup returns 2D street geometry. Map tiles and location search still require internet. Stop it with `npm run ors:stop`. Complete setup, storage/memory requirements and troubleshooting are in [OFFLINE_ROUTING.md](OFFLINE_ROUTING.md).
 
+## Experimental batch export
+
+A GeoParquet prototype and reproducible 1,000/10,000-trip comparison are available for evaluating larger datasets. It is separate from the main app export controls. See [PARQUET_EXPORT.md](PARQUET_EXPORT.md) for the browser experiment, downloadable fixture and benchmark commands.
+
 ## Project Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — runtime structure, behavior, and deployment boundaries.

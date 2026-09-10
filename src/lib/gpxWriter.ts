@@ -122,7 +122,7 @@ function trackPointToXml([lon, lat, elevation]: LonLat): string {
   return `<trkpt ${pointTag} />`;
 }
 
-function segmentDistanceM(coords: LonLat[]): number {
+export function segmentDistanceM(coords: LonLat[]): number {
   let distance = 0;
   for (let index = 1; index < coords.length; index += 1) {
     distance += haversineDistanceM(toLatLon(coords[index - 1]), toLatLon(coords[index]));
@@ -259,7 +259,7 @@ function pointToXml(role: EndpointRole, point: GpxPointInput | undefined): strin
     </odc:point>`;
 }
 
-function buildSegments(input: GpxTripInput): TripSegment[] {
+export function buildTripSegments(input: GpxTripInput): TripSegment[] {
   const direct = input.cycling?.length ? input.cycling : input.driving;
   const directMode = input.cycling?.length ? "cycling" : "driving";
   if (direct && direct.length > 0) {
@@ -385,7 +385,7 @@ function buildSegments(input: GpxTripInput): TripSegment[] {
 export function buildTripGpx(input: GpxTripInput): string {
   const created = new Date().toISOString();
   const routeMode = resolvedRouteMode(input);
-  const segments = buildSegments(input);
+  const segments = buildTripSegments(input);
   const tracks = segments.map((segment, index) => trackToXml(segment, index + 1)).join("\n  ");
 
   return `<?xml version="1.0" encoding="UTF-8"?>

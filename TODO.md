@@ -10,3 +10,8 @@ Confirm the relevant item against source before starting. Completed work belongs
 - [ ] Add a deterministic large-preview benchmark that checks actual Leaflet layer counts, beyond pure segment counts.
 - [ ] Extend transit coverage/refresh tooling and replace approximate internal station connectors where reliable pathway geometry is available.
 - [ ] Consider optional scheduled journeys and durations later; keep today's synthetic mode independent of timetables.
+
+- [ ] Add compact export options (lossless ZIP compression first), then optional speed-based observation sampling and seeded GNSS errors; retain clean route geometry and explicit model metadata. See GPX_EXPORT.md for measured sizes and design considerations.
+
+- [ ] Integrate GeoParquet with bounded batch exports and structured canonical trips; generate GPX on demand. Prototype and measurements: PARQUET_EXPORT.md.
+- [ ] Replace the flat trip list with a batch/trip hierarchy: compact child rows, mode/line colors and accessible icons/text, full details only for the selected trip, map-selection synchronization and virtualized lists/bounded previews.

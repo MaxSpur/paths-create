@@ -9,6 +9,10 @@ Run `npm run benchmark` for offline rail-graph and panel-DOM fixtures. Establish
 - `npm run check`: tests, build and bundle budget.
 - `scripts/check-bundle-size.mjs`: sums gzip bytes of JS/CSS directly referenced by `dist/index.html`, capped at 80,000 bytes. It does not recursively traverse imports; revisit coverage if chunk loading changes.
 
+## Batch export experiment
+
+`npm run benchmark:parquet` compares current ZIP, DEFLATE ZIP and GeoParquet on identical structured fixtures, with independent exact geometry readback. See [PARQUET_EXPORT.md](PARQUET_EXPORT.md) for the method, schema, memory limits and 1,000/10,000-trip measurements.
+
 ## Runtime constraints
 
 - Coalesce synchronous UI invalidations into a microtask; patch progress and clock DOM.

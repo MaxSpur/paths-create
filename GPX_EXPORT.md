@@ -99,3 +99,21 @@ Example:
 - `src/test/automaticTransit.test.ts` checks cycling/parking metadata and preview modes; `src/test/gpxWriter.test.ts` covers parseable metro and driving output, structured addresses, and 2D coordinates.
 - Run `npm run test:run -- src/test/gpxWriter.test.ts` for a focused contract check, and `npm run check` before release.
 - Coordinate counts and `distanceM` are computed once per segment and reused in both the track and segment-reference metadata; the duplicated values must stay identical.
+
+## Resolution and future observation sampling
+
+Current GPX exports preserve irregular provider vertices, not regularly sampled GNSS observations. No per-point times, speed profiles or observation noise exist. Coordinates are formatted to seven decimal places (~1.1 cm latitude / 0.7 cm longitude in IDF); this is serialization precision, not positional accuracy. Bundled transit shapes are rounded to six decimals after 3 m RDP simplification, preserving inter-stop section endpoints. ORS street routes have no additional app-side simplification. ZIP currently uses JSZip's default STORE method, without compression.
+
+Illustrative local ORS measurements on 2026-09-10, with the current writer, 2D coordinates and minimal trip metadata (decimal kB):
+
+| Route | Length | Points | Median vertex gap | GPX | DEFLATE payload |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Walking near Pantin | 1.35 km | 79 | 7.0 m | 5.32 kB | 1.15 kB |
+| Cycling toward Noisy–Champs | 17.73 km | 493 | 18.4 m | 25.65 kB | 4.32 kB |
+| Driving toward Noisy–Champs | 20.99 km | 379 | 34.8 m | 20.06 kB | 3.51 kB |
+
+Endpoints: all start at [2.402, 48.895]; walking ends at [2.414, 48.899], cycling/driving at [2.58, 48.843] (longitude, latitude). DEFLATE is a measured alternative, not current export behavior; ZIP headers add overhead. These are illustrative routes, not measurements of the user's saved trips or a population average. Additional addresses, elevations and transit legs increase size. At IDF coordinates each current 2D trackpoint contributes about 51 bytes including formatting, plus trip/leg metadata. Browser memory additionally holds coordinate arrays, previews and GPX strings; it is not equal to file size.
+
+Keep compact route geometry and synthetic observations separate. A future observation stage can traverse each leg by accumulated distance and modeled speed, sampling at a configurable time interval in O(vertices + samples). This needs synthetic elapsed time, not real service schedules. Faster travel produces larger gaps at a fixed interval, but sampling may densify already sparse geometry. Preserve underlying bends and leg boundaries; a compact route export should instead use a spatial error tolerance. Stops, acceleration and road/rail context need explicit assumptions before claiming realistic speed profiles.
+
+Future GNSS simulation should keep clean truth alongside observations and record a seed, interval and model parameters. Consider spatially/temporally correlated drift, multipath, independent noise, outliers and dropouts, especially underground. The user's reference slide gives Gaussian/exponential correlation components (sigma 0.5 m / range 100 m and sigma 5 m / range 20 m) plus white noise (sigma 1 m / range 0 m); these are example model parameters, not validated defaults for every mode/environment. Apply observation noise after sampling and keep it distinct from geometric simplification and decimal rounding. Scope remains exploratory; no export behavior changed.
