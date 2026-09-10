@@ -50,6 +50,45 @@ function placesModel(): PanelModel {
 }
 
 describe("renderPanel", () => {
+  it("separates cycling access from destination walking and hides transit limits for direct cycling", () => {
+    const container = document.createElement("div");
+    const onMaxCyclingDistanceChange = vi.fn();
+    const model = { ...placesModel(), maxCyclingDistanceM: 7000 };
+    model.stations[0].walkPoints[0].tripMode = "cycling_transit";
+    model.selectedOriginStationId = model.stations[0].id;
+    renderPanel(container, model, { ...createCallbacks(), onMaxCyclingDistanceChange });
+    expect(container.textContent).toContain("Maximum access walk");
+    expect(container.textContent).toContain("Bike parking is assumed, not verified");
+    const cyclingDistance = container.querySelector<HTMLInputElement>("#maxCyclingDistance")!;
+    expect(cyclingDistance.value).toBe("7000");
+    cyclingDistance.value = "8000";
+    cyclingDistance.dispatchEvent(new Event("change"));
+    expect(onMaxCyclingDistanceChange).toHaveBeenCalledWith(8000);
+    for (const station of model.stations) for (const point of station.walkPoints) point.tripMode = "cycling";
+    renderPanel(container, model, createCallbacks());
+    expect(container.querySelector("#maxCyclingDistance")).toBeNull();
+    expect(container.querySelector("#maxAccessDistance")).toBeNull();
+    expect(container.querySelector("#maxTransfers")).toBeNull();
+  });
+
+  it("identifies cycling trips and shows bike access separately from the exit walk", () => {
+    const container = document.createElement("div");
+    const model = placesModel();
+    const baseTrip = {
+      id: "bike", pairKey: "a-b", fileName: "bike.gpx", gpx: "<gpx />",
+      originPoint: { id: "a", lat: 48, lon: 2 }, destinationPoint: { id: "b", lat: 48.1, lon: 2.1 },
+      walkInCoords: [], walkOutCoords: [], metroCoords: [], drivingCoords: [],
+      cyclingCoords: [[2, 48], [2.02, 48]] as [number, number][]
+    };
+    model.generatedTrips = [
+      { ...baseTrip, routeMode: "cycling" },
+      { ...baseTrip, id: "bike-transit", routeMode: "metro", accessMode: "cycling", transitJourney: transitJourneyFixture() }
+    ];
+    renderPanel(container, model, createCallbacks());
+    expect(Array.from(container.querySelectorAll(".trip-mode"), (el) => el.textContent)).toEqual(["Cycling", "Cycling + transit"]);
+    expect(container.querySelector(".trip-access")?.textContent).toContain("Bike access 1.5 km · Exit walk 0 m");
+  });
+
   it("escapes dynamic text and attribute values", () => {
     const stationName = `<img src=x onerror="alert(1)"> Central`;
     const pointLabel = `<script>alert(2)</script> Crosswalk`;
@@ -61,7 +100,6 @@ describe("renderPanel", () => {
     const container = document.createElement("div");
     const model: PanelModel = {
       mode: "idle",
-      routingMode: "point_modes",
       busy: false,
       stations: [
         {
@@ -480,32 +518,24 @@ describe("renderPanel", () => {
     expect(onSetMode.mock.calls.slice(2)).toEqual([["move_point"], ["add_point"]]);
   });
 
-  it("wires routing options and swapping without exposing point modes outside Mixed", () => {
+  it("exposes point modes with no global selector and retains access options", () => {
     const container = document.createElement("div");
     const model = placesModel();
-    const callbacks = { ...createCallbacks(), onRoutingModeChange: vi.fn(), onMaxAccessDistanceChange: vi.fn(), onMaxTransfersChange: vi.fn(), onSwapPlaces: vi.fn() };
-    renderPanel(container, model, callbacks);
-    expect(container.querySelector("[data-point-trip-mode]")).toBeNull();
-    const mode = container.querySelector<HTMLSelectElement>("#routingMode")!;
-    expect(mode.value).toBe("transit");
-    mode.value = "driving";
-    mode.dispatchEvent(new Event("change"));
+    const callbacks = {...createCallbacks(), onTogglePointTripMode:vi.fn(), onMaxAccessDistanceChange:vi.fn(),onMaxTransfersChange:vi.fn(),onSwapPlaces:vi.fn()};
+    renderPanel(container,model,callbacks);
+    expect(container.querySelector("#routingMode")).toBeNull();
+    container.querySelector<HTMLButtonElement>("[data-point-trip-mode]")!.click();
+    expect(callbacks.onTogglePointTripMode).toHaveBeenCalledOnce();
     const access = container.querySelector<HTMLInputElement>("#maxAccessDistance")!;
-    access.value = "2000";
-    access.dispatchEvent(new Event("change"));
-    const changes = container.querySelector<HTMLSelectElement>("#maxTransfers")!;
-    changes.value = "2";
-    changes.dispatchEvent(new Event("change"));
-    container.querySelector<HTMLButtonElement>("#swapPlaces")!.click();
-    expect(callbacks.onRoutingModeChange).toHaveBeenCalledWith("driving");
+    access.value="2000"; access.dispatchEvent(new Event("change"));
     expect(callbacks.onMaxAccessDistanceChange).toHaveBeenCalledWith(2000);
-    expect(callbacks.onMaxTransfersChange).toHaveBeenCalledWith(2);
+    container.querySelector<HTMLButtonElement>("#swapPlaces")!.click();
     expect(callbacks.onSwapPlaces).toHaveBeenCalledOnce();
-    renderPanel(container, { ...model, routingMode: "driving" }, callbacks);
-    expect(container.querySelector("#maxAccessDistance")).toBeNull();
-    renderPanel(container, { ...model, routingMode: "point_modes" }, callbacks);
-    expect(container.querySelector("[data-point-trip-mode]")).not.toBeNull();
-    expect(container.textContent).toContain("A pair drives if either point is D.");
+    for (const [mode,label] of [["metro","T"],["driving","D"],["cycling","C"],["cycling_transit","C+T"]] as const) {
+      model.stations[0].walkPoints[0].tripMode=mode;
+      renderPanel(container,model,callbacks);
+      expect(container.querySelector("[data-point-trip-mode]")!.textContent).toBe(label);
+    }
   });
 
   it("shows chosen boarding stops and measured endpoint walks without counting interchanges", () => {

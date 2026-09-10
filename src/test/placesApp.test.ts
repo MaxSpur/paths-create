@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateTrips } from "../lib/generator";
 import { createDefaultState, loadState, persistState } from "../lib/stateStore";
 import { loadTransitNetwork } from "../lib/transitNetwork";
-import type { AppState, GenerationResult, LatLon, RoutingMode } from "../lib/types";
+import type { AppState, GenerationResult, LatLon } from "../lib/types";
 import { createApp } from "../ui/app";
 import type { MapCallbacks, MapRenderModel } from "../ui/map";
 
@@ -105,6 +105,53 @@ afterEach(() => {
 });
 
 describe("places app lifecycle", () => {
+  it("creates and moves coordinate-only points with addresses off, without scheduling lookups", async () => {
+    start();
+    await click("#lookupAddresses");
+    expect(loadState().lookupAddresses).toBe(false);
+    expect(loadState().stations[0].walkPoints[0].label).toBe("Origin one");
+    await change("#randomCount", "20");
+    await click("#addRandomPoints");
+    const added = loadState().stations[0].walkPoints.slice(2);
+    expect(added).toHaveLength(20);
+    expect(added.every((point) => point.addressStatus === "skipped" && point.label === `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`)).toBe(true);
+    await click('[data-point-id="origin-1"]');
+    await click("#modeMovePoint");
+    mocks.callbacks!.onMapClick({ lat: 48.899, lon: 2.402 });
+    await flush();
+    expect(loadState().stations[0].walkPoints[0]).toMatchObject({ label: "48.89900, 2.40200", addressStatus: "skipped" });
+    await click("#modeAddPlacePoint");
+    mocks.callbacks!.onMapClick({ lat: 48.85, lon: 2.35 });
+    await flush();
+    expect(loadState().stations[2].walkPoints[0]).toMatchObject({ label: "48.85000, 2.35000", addressStatus: "skipped" });
+    expect(vi.getTimerCount()).toBe(0);
+    await click("#lookupAddresses");
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(mocks.reverse).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("cancels pending address work and ignores a late response after disabling and re-enabling", async () => {
+    let resolveLookup!: (value: { label: string }) => void;
+    mocks.reverse.mockImplementationOnce(() => new Promise((resolve) => { resolveLookup = resolve; }));
+    start();
+    await change("#randomCount", "3");
+    await click("#addRandomPoints");
+    expect(mocks.reverse).toHaveBeenCalledOnce();
+    const hooks = mocks.reverse.mock.calls[0][1];
+    await click("#lookupAddresses");
+    expect(hooks.signal.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    await click("#lookupAddresses");
+    hooks.onStarted();
+    resolveLookup({ label: "Stale address" });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(mocks.reverse).toHaveBeenCalledOnce();
+    expect(loadState().stations[0].walkPoints.slice(2).every((point) => point.addressStatus === "skipped")).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(document.querySelector(".point-clock")).toBeNull();
+  });
+
   it("migrates saved stations and selects a third place without replacing From/To or point pools", async () => {
     const original = savedStations();
     start(original);
@@ -121,7 +168,7 @@ describe("places app lifecycle", () => {
     await click(`[data-place-id="${third.id}"]`);
 
     const state = loadState();
-    expect(state.schemaVersion).toBe(2);
+    expect(state.schemaVersion).toBe(3);
     expect(state.ui.activeStationId).toBe(third.id);
     expect(state.selectedOriginStationId).toBe("old-origin");
     expect(state.selectedDestinationStationId).toBe("old-destination");
@@ -172,19 +219,29 @@ describe("places app lifecycle", () => {
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
 
-  it.each<RoutingMode>(["transit", "driving", "point_modes"])("passes automatic routing and walking constraints in %s mode", async (routingMode) => {
+  it("cycles all four point modes, persists them and removes the global selector", async () => {
     start();
+    expect(document.querySelector("#routingMode")).toBeNull();
+    const pointId = loadState().stations[0].walkPoints[0].id;
+    for (const mode of ["driving","cycling","cycling_transit","metro"]) {
+      await click(`[data-point-id="${pointId}"] [data-point-trip-mode]`);
+      expect(loadState().stations[0].walkPoints[0].tripMode).toBe(mode);
+    }
     await change("#orsApiKey", "test-only-ors-key");
-    await change("#maxAccessDistance", "2300");
-    await change("#maxTransfers", "1");
-    await change("#routingMode", routingMode);
+    await change("#maxAccessDistance","2300");
     await click("#generate");
     expect(generateTrips).toHaveBeenCalledOnce();
-    expect(vi.mocked(generateTrips).mock.calls[0][0]).toMatchObject({
-      automaticTransit: true, routingMode, maxAccessDistanceM: 2300, maxTransfers: 1,
-      orsApiKey: "test-only-ors-key", originStation: { id: "old-origin" }, destinationStation: { id: "old-destination" }
-    });
-    expect(loadTransitNetwork).toHaveBeenCalledTimes(routingMode === "driving" ? 0 : 1);
+    expect(vi.mocked(generateTrips).mock.calls[0][0]).toMatchObject({automaticTransit:true,routingMode:"point_modes",maxAccessDistanceM:2300});
+    expect(loadTransitNetwork).toHaveBeenCalledOnce();
     expect(globalThis.fetch).not.toHaveBeenCalled();
   });
+  it("loads transit and generates in local mode with no hosted key",async()=>{
+    start();
+    await change("#routingProvider","local");
+    expect(document.querySelector("#orsApiKey")).toBeNull();
+    await click("#generate");
+    expect(loadTransitNetwork).toHaveBeenCalledOnce();
+    expect(vi.mocked(generateTrips).mock.calls[0][0]).toMatchObject({routingProvider:"local",orsApiKey:"",automaticTransit:true});
+  });
+
 });

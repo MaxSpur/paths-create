@@ -1,3 +1,4 @@
+import { hasTransitPointPairs, nextPointMode, MODE_LABELS } from "../lib/tripModes";
 import { downloadZip } from "../lib/exportZip";
 import { createGenerationRouteCache } from "../lib/generationRouteCache";
 import { reverseGeocode, searchLocations } from "../lib/geocode";
@@ -61,6 +62,7 @@ export function createApp(root: HTMLElement): void {
   let scrollSelectedIntoView = false;
   let scrollSelectedTripIntoView = false;
   const pointAddressTimers = new Map<string, number>();
+  const pointAddressRequests = new Map<string, AbortController>();
   const pointClockStates = new Map<string, PointClockState>();
   let pointClockTicker: number | null = null;
   let requestUiRefresh: (() => void) | null = null;
@@ -139,12 +141,20 @@ export function createApp(root: HTMLElement): void {
   };
 
   const clearPointAddressTimer = (pointId: string) => {
+    pointAddressRequests.get(pointId)?.abort();
+    pointAddressRequests.delete(pointId);
     const timer = pointAddressTimers.get(pointId);
     if (timer !== undefined) {
       window.clearTimeout(timer);
       pointAddressTimers.delete(pointId);
     }
     clearPointClock(pointId);
+  };
+
+  const cancelPointAddresses = () => {
+    for (const pointId of new Set([...pointAddressTimers.keys(), ...pointAddressRequests.keys()])) {
+      clearPointAddressTimer(pointId);
+    }
   };
 
   const schedulePointAddressRefresh = (
@@ -155,6 +165,10 @@ export function createApp(root: HTMLElement): void {
     delayMs: number
   ) => {
     clearPointAddressTimer(pointId);
+    if (store.getState().lookupAddresses === false) return;
+    const controller = new AbortController();
+    pointAddressRequests.set(pointId, controller);
+    const isCurrent = () => !controller.signal.aborted && pointAddressRequests.get(pointId) === controller;
     const now = Date.now();
     setPointClock(pointId, {
       phase: "debounce",
@@ -169,7 +183,9 @@ export function createApp(root: HTMLElement): void {
         const geocoded = await reverseGeocode(
           { lat, lon },
           {
+            signal: controller.signal,
             onQueued: ({ estimatedWaitMs }) => {
+              if (!isCurrent()) return;
               const queuedNow = Date.now();
               setPointClock(pointId, {
                 phase: "queue",
@@ -180,6 +196,7 @@ export function createApp(root: HTMLElement): void {
               requestUiRefresh?.();
             },
             onStarted: () => {
+              if (!isCurrent()) return;
               const startedAt = Date.now();
               setPointClock(pointId, {
                 phase: "lookup",
@@ -191,6 +208,7 @@ export function createApp(root: HTMLElement): void {
             }
           }
         );
+        if (!isCurrent()) return;
         clearPointClock(pointId);
         store.update((draft) => {
           const station = draft.stations.find((item) => item.id === stationId);
@@ -209,6 +227,7 @@ export function createApp(root: HTMLElement): void {
           return draft;
         });
       } catch {
+        if (!isCurrent()) return;
         clearPointClock(pointId);
         store.update((draft) => {
           const station = draft.stations.find((item) => item.id === stationId);
@@ -228,6 +247,8 @@ export function createApp(root: HTMLElement): void {
           }
           return draft;
         });
+      } finally {
+        if (isCurrent()) pointAddressRequests.delete(pointId);
       }
     }, Math.max(0, delayMs));
 
@@ -561,9 +582,9 @@ export function createApp(root: HTMLElement): void {
       if (!station) return draft;
       const point = station.walkPoints.find((item) => item.id === pointId);
       if (!point) return draft;
-      const nextMode = point.tripMode === "driving" ? "metro" : "driving";
+      const nextMode = nextPointMode(point.tripMode);
       point.tripMode = nextMode;
-      nextStatusText = nextMode === "driving" ? "Point set to driving mode." : "Point set to transit mode.";
+      nextStatusText = `Point set to ${MODE_LABELS[nextMode].toLowerCase()} mode.`;
       return draft;
     });
     statusText = nextStatusText;
@@ -706,12 +727,10 @@ export function createApp(root: HTMLElement): void {
     render();
 
     try {
-      const hasTransitPairs = state.generation.routingMode !== "driving" &&
-        (state.generation.routingMode === "transit" || (origin.walkPoints.some((point) => point.tripMode !== "driving")
-          && destination.walkPoints.some((point) => point.tripMode !== "driving")));
+      const hasTransitPairs = hasTransitPointPairs(origin.walkPoints, destination.walkPoints);
       let transitNetwork;
       let transitNetworkError: string | undefined;
-      if (hasTransitPairs && state.orsApiKey.trim() && origin.walkPoints.some(isInTransitRegion) && destination.walkPoints.some(isInTransitRegion)) {
+      if (hasTransitPairs && (state.routingProvider === "local" || state.orsApiKey.trim()) && origin.walkPoints.some(isInTransitRegion) && destination.walkPoints.some(isInTransitRegion)) {
         try {
           transitNetwork = await loadTransitNetwork();
         } catch (error) {
@@ -720,6 +739,7 @@ export function createApp(root: HTMLElement): void {
       }
       const result = await generateTrips({
         orsApiKey: state.orsApiKey,
+        routingProvider: state.routingProvider,
         overpassUrl: state.overpassUrl,
         originStation: origin,
         destinationStation: destination,
@@ -731,8 +751,9 @@ export function createApp(root: HTMLElement): void {
         transitNetwork,
         transitNetworkError,
         automaticTransit: true,
-        routingMode: state.generation.routingMode,
+        routingMode: "point_modes",
         maxAccessDistanceM: state.generation.maxAccessDistanceM,
+        maxCyclingDistanceM: state.generation.maxCyclingDistanceM,
         maxTransfers: state.generation.maxTransfers,
         onProgress: (update) => {
           applyGenerationProgress(update);
@@ -826,10 +847,7 @@ export function createApp(root: HTMLElement): void {
     if (!window.confirm("Reset all saved data (places, points, settings, API key)?")) {
       return;
     }
-    for (const timer of pointAddressTimers.values()) {
-      window.clearTimeout(timer);
-    }
-    pointAddressTimers.clear();
+    cancelPointAddresses();
     pointClockStates.clear();
     generationRouteCache.clear();
     ensurePointClockTicker();
@@ -871,13 +889,15 @@ export function createApp(root: HTMLElement): void {
         selectedOriginStationId: state.selectedOriginStationId,
         selectedDestinationStationId: state.selectedDestinationStationId,
         orsApiKey: state.orsApiKey,
+        routingProvider: state.routingProvider,
         overpassUrl: state.overpassUrl,
         tripCount: state.generation.tripCount,
         seed: state.generation.seed,
-        routingMode: state.generation.routingMode,
         maxAccessDistanceM: state.generation.maxAccessDistanceM,
+        maxCyclingDistanceM: state.generation.maxCyclingDistanceM,
         maxTransfers: state.generation.maxTransfers,
         randomCount: state.randomPointDefaults.count,
+        lookupAddresses: state.lookupAddresses,
         nearbyCandidates,
         generatedTrips,
         selectedTripId,
@@ -904,11 +924,19 @@ export function createApp(root: HTMLElement): void {
           statusText = messages[nextMode];
           render();
         },
+        onRoutingProviderChange: provider => {
+          generationRouteCache.clear();
+          store.update(draft => { draft.routingProvider = provider; return draft; });
+        },
         onApiKeyChange: (value) => {
           store.update((draft) => {
             draft.orsApiKey = value.trim();
             return draft;
           });
+        },
+        onLookupAddressesChange: (enabled) => {
+          if (!enabled) cancelPointAddresses();
+          store.update((draft) => { draft.lookupAddresses = enabled; return draft; });
         },
         onClearApiKey: () => {
           store.update((draft) => {
@@ -978,11 +1006,11 @@ export function createApp(root: HTMLElement): void {
             return draft;
           });
         },
-        onRoutingModeChange: (value) => {
-          store.update((draft) => { draft.generation.routingMode = value; return draft; });
-        },
         onMaxAccessDistanceChange: (value) => {
           store.update((draft) => { draft.generation.maxAccessDistanceM = value; return draft; });
+        },
+        onMaxCyclingDistanceChange: (value) => {
+          store.update((draft) => { draft.generation.maxCyclingDistanceM = value; return draft; });
         },
         onMaxTransfersChange: (value) => {
           store.update((draft) => { draft.generation.maxTransfers = value; return draft; });

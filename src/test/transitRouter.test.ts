@@ -22,6 +22,34 @@ function route(network: TransitNetwork, from = 0, to = network.stops.length - 1,
 }
 
 describe("findTransitJourney", () => {
+  it("keeps valid alighting labels when a cheaper transfer reaches the same destination", () => {
+    const network = fixture(linear.slice(0, 3), [[0, 1, 2]], [[1, 2]]);
+    network.patterns[0].coordinates.splice(2, 0, [2.03, 48.01]);
+    network.patterns[0].offsets = [0, 1, 3];
+    const journey = findTransitJourney(network, network.stops[0], network.stops[2], {
+      originStopCosts: new Map([[0, 0]]), destinationStopCosts: new Map([[2, 0]])
+    });
+    expect(journey?.legs).toHaveLength(1);
+    expect(journey?.legs[0].kind).toBe("transit");
+    expect(journey?.to.id).toBe("s2");
+  });
+
+  it("restricts only the first boarding mode and preserves later bus transfers", () => {
+    const network = fixture(linear.slice(0, 3), [[0, 2], [0, 1], [1, 2]]);
+    network.lines[0].mode = "bus";
+    network.lines[1].mode = "rer";
+    network.lines[2].mode = "bus";
+    const options = { originStopCosts: new Map([[0, 0]]), destinationStopCosts: new Map([[2, 0]]) };
+    expect(findTransitJourney(network, network.stops[0], network.stops[2], options)?.legs[0].mode).toBe("bus");
+    const journey = findTransitJourney(network, network.stops[0], network.stops[2], {
+      ...options, initialBoardingMode: "rer"
+    });
+    expect(journey?.legs.map((leg) => leg.mode)).toEqual(["rer", "bus"]);
+    expect(findTransitJourney(network, network.stops[0], network.stops[2], {
+      ...options, initialBoardingMode: "metro"
+    })).toBeNull();
+  });
+
   it("rejects automatic train loops ending in the boarding station group", () => {
     const network = fixture([[2, 48], [2.02, 48], [2.0001, 48]], [[0, 1, 2]]);
     network.stops[0].parent = "same-station";

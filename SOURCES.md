@@ -12,6 +12,9 @@ References by topic. Service/runtime links were reviewed 2026-08-08 and GitHub A
 - [openrouteservice dashboard](https://openrouteservice.org/dev/) — user key management.
 - [openrouteservice FAQ](https://openrouteservice.org/faq/) — quota and account guidance. Avoid copying volatile login UI details into the README.
 
+- [Local ORS installation](OFFLINE_ROUTING.md) — installed/verified 2026-09-10: pinned native Java server, IDF extract checksums, measured graph size and independent-route benchmarks.
+- [IDFM bike-parking inventory](https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/parking-velos-ile-de-france-mobilites) — station-adjacent parking locations/types, metadata reviewed 2026-09-07. Not downloaded or integrated; cycling + transit currently marks parking unverified.
+
 ## OpenStreetMap Data And Search
 
 - [Overpass API overview and public instances](https://wiki.openstreetmap.org/wiki/Overpass_API) — query model and public-instance constraints. The configured rail-query backup is `overpass.private.coffee`; recheck its suitability before changing fallback policy.

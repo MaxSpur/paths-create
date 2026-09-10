@@ -1,6 +1,6 @@
 import { haversineDistanceM, toLatLon, toLonLat } from "./geo";
 import type { LatLon, LonLat } from "./types";
-import type { TransitJourney, TransitLeg, TransitNetwork, TransitStop } from "./transitTypes";
+import type { TransitJourney, TransitLeg, TransitMode, TransitNetwork, TransitStop } from "./transitTypes";
 
 export interface TransitRoutingOptions {
   maxTransfers?: number;
@@ -12,6 +12,8 @@ export interface TransitRoutingOptions {
   destinationStopCosts?: ReadonlyMap<number, number>;
   walkingWeight?: number;
   blockedTransferStops?: ReadonlySet<string>;
+  /** Restrict the initial ride only; later transfers may use any service mode. */
+  initialBoardingMode?: TransitMode;
 }
 
 interface Occurrence { pattern: number; index: number; stop: number; distance: number }
@@ -236,13 +238,16 @@ export function findTransitJourney(
   // that dimension an invalid station-return loop could suppress a valid journey
   // that starts at a different nearby station. Distant queries keep the small graph.
   const endGroups = new Set([...ends.keys()].map((stop) => graph.stopGroups[stop]));
-  const labelKey = (node: number, boardings: number, originGroup?: number): number =>
-    ((originGroup ?? -1) + 1) * (maxTransfers + 2) * nodeCount + boardings * nodeCount + node;
+  // Automatic egress must start at an alighting stop. A cheaper transfer arrival
+  // at that same node cannot replace an eligible alighting label.
+  const labelKey = (node: number, boardings: number, originGroup?: number, step?: Step): number =>
+    (((originGroup ?? -1) + 1) * (maxTransfers + 2) * nodeCount + boardings * nodeCount + node) * 2 +
+    (automatic && ends.has(node) && step?.kind === "alight" ? 1 : 0);
   const labels = new Map<number, Label>();
   const queue = new MinHeap();
   const add = (node: number, boardings: number, cost: number, previous?: Label, step?: Step,
     originGroup = previous?.originGroup): void => {
-    const key = labelKey(node, boardings, originGroup);
+    const key = labelKey(node, boardings, originGroup, step);
     if (cost >= (labels.get(key)?.cost ?? Infinity)) return;
     const label: Label = { node, boardings, cost, originGroup, previous, step };
     labels.set(key, label);
@@ -256,7 +261,7 @@ export function findTransitJourney(
   let bestCost = Infinity;
   for (let current = queue.pop(); current; current = queue.pop()) {
     if (current.cost >= bestCost) break;
-    if (labels.get(labelKey(current.node, current.boardings, current.originGroup)) !== current) continue;
+    if (labels.get(labelKey(current.node, current.boardings, current.originGroup, current.step)) !== current) continue;
     if (current.node < stopCount) {
       const stop = current.node;
       const egress = ends.get(stop);
@@ -274,6 +279,8 @@ export function findTransitJourney(
       }
       if (current.boardings <= maxTransfers) {
         for (const occurrence of graph.board[stop]) {
+          if (current.boardings === 0 && options.initialBoardingMode &&
+              network.lines[network.patterns[graph.occurrences[occurrence].pattern].line].mode !== options.initialBoardingMode) continue;
           add(stopCount + occurrence + 1, current.boardings + 1,
             current.cost + graph.occurrences[occurrence].distance + (current.boardings ? penalty : 0),
             current, { kind: "ride", from: occurrence, to: occurrence + 1, boarding: true });

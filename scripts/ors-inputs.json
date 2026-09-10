@@ -1,0 +1,17 @@
+{
+  "version": "9.10.0",
+  "assets": [
+    {
+      "file": "ors.jar",
+      "url": "https://github.com/GIScience/openrouteservice/releases/download/v9.10.0/ors.jar",
+      "bytes": 86812074,
+      "sha256": "ca413c820ba295580d60ea1122e2a1776ba25a5004285739ab614a20af23d620"
+    },
+    {
+      "file": "ile-de-france.osm.pbf",
+      "url": "https://download.geofabrik.de/europe/france/ile-de-france-260909.osm.pbf",
+      "bytes": 337908641,
+      "sha256": "6c025149c3512be1c5e34efcc322970c91233bd312ff4a824a3db413da88c7c5"
+    }
+  ]
+}

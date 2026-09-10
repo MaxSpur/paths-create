@@ -1,3 +1,4 @@
+import { normalizePointMode, MODE_LABELS } from "../lib/tripModes";
 import L from "leaflet";
 import type { LocationSearchBounds, LocationSearchResult } from "../lib/geocode";
 import type { GeneratedTrip, LatLon, LonLat, StationRecord } from "../lib/types";
@@ -23,10 +24,11 @@ export interface MapRenderModel {
   previewTrips: GeneratedTrip[];
 }
 
-function pointMarkerColors(point: { tripMode?: "metro" | "driving" }, isSelected: boolean): {
+function pointMarkerColors(point: { tripMode?: import("../lib/types").PointTripMode }, isSelected: boolean): {
   color: string;
   fillColor: string;
 } {
+  if (point.tripMode === "cycling" || point.tripMode === "cycling_transit") return {color: isSelected ? "#155e75" : "#0891b2", fillColor: point.tripMode === "cycling" ? "#67e8f9" : "#5eead4"};
   const isDriving = point.tripMode === "driving";
   if (isDriving) {
     return {
@@ -42,7 +44,7 @@ function pointMarkerColors(point: { tripMode?: "metro" | "driving" }, isSelected
 }
 
 function tripCoordinates(trip: GeneratedTrip): LonLat[] {
-  return trip.routeMode === "driving"
+  return trip.routeMode === "cycling" ? trip.cyclingCoords ?? [] : trip.routeMode === "driving"
     ? trip.drivingCoords
     : [...trip.walkInCoords, ...(trip.transitJourney ? trip.transitJourney.legs.flatMap((leg) => leg.coordinates) : trip.metroCoords), ...trip.walkOutCoords];
 }
@@ -404,7 +406,7 @@ export class MapView {
             bubblingMouseEvents: false
           });
           const tooltip = document.createElement("span");
-          tooltip.textContent = `${point.tripMode === "driving" ? "Driving" : "Transit"}: ${point.label || point.id}`;
+          tooltip.textContent = `${MODE_LABELS[normalizePointMode(point.tripMode)]}: ${point.label || point.id}`;
           marker.bindTooltip(tooltip, { direction: "top" });
           marker.on("click", (event: L.LeafletMouseEvent) => {
             L.DomEvent.stop(event);
@@ -431,6 +433,8 @@ export class MapView {
 
   private renderPreviewSegment(segment: PreviewSegment, hasSelectedTrip: boolean): void {
     const styles: Record<PreviewSegment["role"], { color: string; weight: number }> = {
+      cycling: { color: "#0891b2", weight: 3.7 },
+      "cycle-in": { color: "#0891b2", weight: 3.7 },
       "walk-in": { color: "#2f855a", weight: 3.4 },
       metro: { color: "#1d4ed8", weight: 3.6 },
       transit: { color: "#1d4ed8", weight: 3.6 },

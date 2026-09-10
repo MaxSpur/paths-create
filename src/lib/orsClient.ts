@@ -30,6 +30,7 @@ export interface DrivingRouteResult {
 
 export interface OrsClientOptions {
   apiKey: string;
+  local?: boolean;
   baseUrl?: string;
   elevationBaseUrl?: string;
   maxRetries?: number;
@@ -186,6 +187,8 @@ export class OrsClient {
   private readonly apiKey: string;
 
   private readonly baseUrl: string;
+  private readonly local: boolean;
+  readonly cacheIdentity: string;
 
   private readonly elevationBaseUrl: string;
 
@@ -194,15 +197,17 @@ export class OrsClient {
   private readonly retryBaseDelayMs: number;
 
   constructor(options: OrsClientOptions) {
-    this.apiKey = options.apiKey;
-    this.baseUrl = options.baseUrl ?? "https://api.openrouteservice.org/v2/directions";
+    this.local = options.local === true;
+    this.apiKey = this.local ? "" : options.apiKey;
+    this.baseUrl = this.local ? "http://127.0.0.1:8082/ors/v2/directions" : options.baseUrl ?? "https://api.openrouteservice.org/v2/directions";
+    this.cacheIdentity = `${this.baseUrl}|elevation=${this.local ? 0 : 1}`;
     this.elevationBaseUrl = options.elevationBaseUrl ?? "https://api.openrouteservice.org/elevation";
     this.maxRetries = options.maxRetries ?? 3;
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 350;
   }
 
   private async postJson(url: string, payload: unknown): Promise<unknown> {
-    if (!this.apiKey.trim()) {
+    if (!this.local && !this.apiKey.trim()) {
       throw new Error("Missing ORS API key.");
     }
 
@@ -213,7 +218,7 @@ export class OrsClient {
         const response = await fetch(url, {
           method: "POST",
           headers: {
-            Authorization: this.apiKey,
+            ...(this.local ? {} : { Authorization: this.apiKey }),
             "Content-Type": "application/json"
           },
           body: JSON.stringify(payload)
@@ -280,10 +285,16 @@ export class OrsClient {
           [from.lon, from.lat],
           [to.lon, to.lat]
         ],
-        elevation: true
+        elevation: !this.local
       },
       "ORS response did not include route geometry."
     );
+  }
+
+  async getCyclingRoute(from: LatLon, to: LatLon): Promise<LonLat[]> {
+    return this.postForCoordinates(`${this.baseUrl}/cycling-regular/geojson`, {
+      coordinates: [[from.lon, from.lat], [to.lon, to.lat]], elevation: !this.local
+    }, "ORS response did not include cycling route geometry.");
   }
 
   async getDrivingRoute(from: LatLon, to: LatLon): Promise<LonLat[]> {
@@ -295,7 +306,7 @@ export class OrsClient {
           [from.lon, from.lat],
           [to.lon, to.lat]
         ],
-        elevation: true
+        elevation: !this.local
       },
       "ORS response did not include driving route geometry."
     );
@@ -311,7 +322,7 @@ export class OrsClient {
             [from.lon, from.lat],
             [to.lon, to.lat]
           ],
-          elevation: true,
+          elevation: !this.local,
           alternative_routes: {
             target_count: 3,
             share_factor: 0.6,
@@ -332,6 +343,7 @@ export class OrsClient {
   }
 
   async drapeLine(line: LonLat[]): Promise<LonLat[]> {
+    if (this.local) throw new Error("Local routing has no elevation dataset configured.");
     if (line.length < 2) {
       return line;
     }

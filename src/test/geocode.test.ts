@@ -74,6 +74,28 @@ describe("searchLocations", () => {
 });
 
 describe("reverseGeocode", () => {
+  it("cancels waiting reverse requests without cancelling forward searches in the shared queue", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    vi.resetModules();
+    const { reverseGeocode, searchLocations } = await import("../lib/geocode");
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response("[]", { status: 200 }));
+    const first = new AbortController();
+    const second = new AbortController();
+    const outcomes = Promise.allSettled([
+      reverseGeocode({ lat: 49.111, lon: 2.111 }, { signal: first.signal }),
+      reverseGeocode({ lat: 49.222, lon: 2.222 }, { signal: second.signal })
+    ]);
+    const search = searchLocations("Cancellation test forward search");
+    first.abort();
+    second.abort();
+    await vi.runAllTimersAsync();
+    expect((await outcomes).map((result) => result.status)).toEqual(["rejected", "rejected"]);
+    expect(await search).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/search?");
+  });
+
   it("returns a display label with structured address details", async () => {
     vi.useFakeTimers();
     vi.spyOn(globalThis, "fetch").mockResolvedValue(

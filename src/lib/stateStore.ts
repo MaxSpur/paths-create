@@ -1,9 +1,10 @@
 import type { AppState, StationRecord, StructuredAddress, WalkPoint } from "./types";
+import { normalizePointMode } from "./tripModes";
 import { DEFAULT_OVERPASS_URL } from "./overpassClient";
 import { clampStationRadiusM } from "./stationRadius";
 
 export const STORAGE_KEY = "odc.generator.state.v1";
-export const STATE_SCHEMA_VERSION = 2;
+export const STATE_SCHEMA_VERSION = 3;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -47,12 +48,12 @@ function normalizeStation(raw: unknown): StationRecord | null {
     .filter((p) => typeof p.id === "string" && isFiniteNumber(p.lat) && isFiniteNumber(p.lon))
     .map((p) => {
       const normalizedStatus: WalkPoint["addressStatus"] =
-        p.addressStatus === "resolving" || p.addressStatus === "resolved" || p.addressStatus === "failed"
+        p.addressStatus === "resolving" || p.addressStatus === "resolved" || p.addressStatus === "failed" || p.addressStatus === "skipped"
           ? p.addressStatus
           : typeof p.label === "string" && p.label.trim() && p.label !== "Resolving address..."
             ? "resolved"
             : "resolving";
-      const normalizedTripMode: WalkPoint["tripMode"] = p.tripMode === "driving" ? "driving" : "metro";
+      const normalizedTripMode: WalkPoint["tripMode"] = normalizePointMode(p.tripMode);
 
       return {
         id: p.id as string,
@@ -88,6 +89,17 @@ function normalizeState(raw: unknown): AppState | null {
   const stations = stationsRaw
     .map((s) => normalizeStation(s))
     .filter((s): s is StationRecord => s !== null);
+  const lookupAddresses = state.lookupAddresses !== false;
+  if (!lookupAddresses) {
+    for (const station of stations) {
+      for (const point of station.walkPoints) {
+        if (point.addressStatus !== "resolving") continue;
+        point.label = `${point.lat.toFixed(5)}, ${point.lon.toFixed(5)}`;
+        point.address = undefined;
+        point.addressStatus = "skipped";
+      }
+    }
+  }
 
   if (typeof state.orsApiKey !== "string") return null;
   if (typeof state.overpassUrl !== "string") return null;
@@ -104,16 +116,25 @@ function normalizeState(raw: unknown): AppState | null {
   const ui: Record<string, unknown> = isObject(state.ui) ? state.ui : {};
   const uiMapCenter: Record<string, unknown> = isObject(ui.mapCenter) ? ui.mapCenter : {};
 
+  // Convert the old effective global choice once; never override later point edits.
+  if (state.schemaVersion !== STATE_SCHEMA_VERSION && ["transit", "driving", "cycling", "cycling_transit"].includes(String(generation.routingMode))) {
+    const mode = generation.routingMode === "transit" ? "metro" : normalizePointMode(generation.routingMode);
+    for (const station of stations) for (const point of station.walkPoints) point.tripMode = mode;
+  }
+
   const normalized: AppState = {
     schemaVersion: STATE_SCHEMA_VERSION,
     orsApiKey: state.orsApiKey,
+    routingProvider: state.routingProvider === "local" ? "local" : "hosted",
+    lookupAddresses,
     overpassUrl: state.overpassUrl || DEFAULT_OVERPASS_URL,
     stations,
     selectedOriginStationId,
     selectedDestinationStationId,
     generation: {
-      routingMode: generation.routingMode === "transit" || generation.routingMode === "driving" ? generation.routingMode : "point_modes",
+      routingMode: "point_modes",
       maxAccessDistanceM: isFiniteNumber(generation.maxAccessDistanceM) ? Math.max(100, Math.min(5000, Math.round(generation.maxAccessDistanceM))) : 1500,
+      maxCyclingDistanceM: isFiniteNumber(generation.maxCyclingDistanceM) ? Math.max(100, Math.min(20000, Math.round(generation.maxCyclingDistanceM))) : 5000,
       maxTransfers: isFiniteNumber(generation.maxTransfers) ? Math.max(0, Math.min(3, Math.round(generation.maxTransfers))) : 3,
       tripCount: isFiniteNumber(generation.tripCount)
         ? Math.max(1, Math.round(generation.tripCount))
@@ -165,13 +186,16 @@ export function createDefaultState(): AppState {
   return {
     schemaVersion: STATE_SCHEMA_VERSION,
     orsApiKey: "",
+    routingProvider: "hosted",
+    lookupAddresses: true,
     overpassUrl: DEFAULT_OVERPASS_URL,
     stations: [],
     selectedOriginStationId: null,
     selectedDestinationStationId: null,
     generation: {
-      routingMode: "transit",
+      routingMode: "point_modes",
       maxAccessDistanceM: 1500,
+      maxCyclingDistanceM: 5000,
       maxTransfers: 3,
       tripCount: 20,
       pairingMode: "round_robin_shuffle"

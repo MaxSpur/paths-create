@@ -2,6 +2,38 @@ import { createStateStore, createDefaultState, loadState, STORAGE_KEY } from "..
 import { describe, expect, it, vi } from "vitest";
 
 describe("stateStore", () => {
+  it.each(["cycling", "cycling_transit"] as const)("persists %s with independently bounded bike access", (routingMode) => {
+    const store = createStateStore(createDefaultState());
+    expect(store.getState().generation.maxCyclingDistanceM).toBe(5000);
+    store.update((draft) => {
+      draft.generation.routingMode = routingMode;
+      draft.generation.maxCyclingDistanceM = 99999;
+      return draft;
+    });
+    expect(loadState().generation).toMatchObject({ routingMode: "point_modes", maxCyclingDistanceM: 20000, maxAccessDistanceM: 1500 });
+    store.update((draft) => { draft.generation.maxCyclingDistanceM = -1; return draft; });
+    expect(loadState().generation.maxCyclingDistanceM).toBe(100);
+  });
+
+  it("preserves opt-out and skipped points, while old or invalid preferences default to lookup enabled", () => {
+    const state = createDefaultState();
+    state.lookupAddresses = false;
+    state.stations = [{ id: "area", name: "Area", lat: 48, lon: 2, radiusM: 500, walkPoints: [
+      { id: "new", lat: 48, lon: 2, label: "Resolving address...", addressStatus: "resolving" },
+      { id: "saved", lat: 48.1, lon: 2.1, label: "Saved address", addressStatus: "resolved" }
+    ] }];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    const loaded = loadState();
+    expect(loaded.lookupAddresses).toBe(false);
+    expect(loaded.stations[0].walkPoints[0]).toMatchObject({ label: "48.00000, 2.00000", addressStatus: "skipped" });
+    expect(loaded.stations[0].walkPoints[1].label).toBe("Saved address");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...loaded, lookupAddresses: undefined }));
+    expect(loadState().lookupAddresses).toBe(true);
+    expect(loadState().stations[0].walkPoints[0].addressStatus).toBe("skipped");
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...loaded, lookupAddresses: "false" }));
+    expect(loadState().lookupAddresses).toBe(true);
+  });
+
   it("persists and rehydrates state", () => {
     const store = createStateStore();
     store.update((draft) => {
@@ -136,7 +168,7 @@ describe("stateStore", () => {
         walkPoints:[{id:"old-p",lat:48.801,lon:2.401,label:"Saved address",tripMode:"driving"}]}],
       selectedOriginStationId:"old",selectedDestinationStationId:"old",ui:{...state.ui,activeStationId:"old",selectedPointId:"old-p"}}));
     const migrated = loadState();
-    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.schemaVersion).toBe(3);
     expect(migrated.stations[0]).toMatchObject({id:"old",kind:"area",radiusM:1234,walkPoints:[{id:"old-p",label:"Saved address",tripMode:"driving"}]});
     expect(migrated.selectedOriginStationId).toBe("old");
     expect(migrated.selectedDestinationStationId).toBe("old");

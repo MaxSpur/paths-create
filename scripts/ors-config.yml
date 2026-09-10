@@ -1,0 +1,33 @@
+# Run with .local-ors as working directory; keep data/graphs out of git.
+server:
+  address: 127.0.0.1
+  port: 8082
+  servlet:
+    context-path: /ors
+ors:
+  cors:
+    allowed_origins: "http://127.0.0.1:5198,http://127.0.0.1:4198"
+  engine:
+    init_threads: 2
+    graph_management:
+      enabled: false
+    profile_default:
+      enabled: false
+      graph_path: graphs
+      build:
+        source_file: ile-de-france.osm.pbf
+        elevation: false
+      service:
+        maximum_distance: 300000
+        maximum_distance_dynamic_weights: 300000
+        maximum_distance_alternative_routes: 300000
+    profiles:
+      driving-car:
+        enabled: true
+      cycling-regular:
+        enabled: true
+        build:
+          encoder_options:
+            consider_elevation: false
+      foot-walking:
+        enabled: true

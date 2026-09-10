@@ -19,6 +19,10 @@ Keep only non-obvious failure modes here. Module ownership and product behavior 
 - Default-endpoint fallback must remain bounded/sequential and must not silently override custom endpoints.
 - Check cold and warm generation, append and failure states when changing routing. Prior successes must survive failures; stale completion reports must not describe a failed new run.
 
+## Transit graph
+
+- When endpoint eligibility depends on arrival type, keep that distinction in shortest-path labels. A transfer arrival cannot dominate an alighting arrival if only the latter can end a journey. Test against the full snapshot as well as small fixtures.
+
 ## Setup and verification
 
 - Repair missing platform optional dependencies with lockfile-faithful `npm ci --include=optional`; do not delete the lockfile.

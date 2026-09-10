@@ -1,6 +1,6 @@
 import type { LatLon, LonLat } from "./types";
 
-export type TransitMode = "metro" | "rer" | "train" | "tram";
+export type TransitMode = "metro" | "rer" | "train" | "tram" | "bus";
 
 export interface TransitStop extends LatLon {
   id: string;

@@ -26,6 +26,7 @@ let active = 0;
 let lastRequestStartedAt = 0;
 
 export interface ReverseGeocodeHooks {
+  signal?: AbortSignal;
   onQueued?: (info: { queuePosition: number; estimatedWaitMs: number }) => void;
   onStarted?: () => void;
 }
@@ -93,6 +94,7 @@ async function processQueue(): Promise<void> {
       await sleep(MIN_REQUEST_GAP_MS - elapsed);
     }
 
+    entry.hooks?.signal?.throwIfAborted();
     lastRequestStartedAt = Date.now();
     entry.hooks?.onStarted?.();
 
@@ -114,6 +116,19 @@ function enqueue<T>(
   priority: QueuePriority = "background"
 ): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    const signal = hooks?.signal;
+    signal?.throwIfAborted();
+    const entry: QueueEntry<T> = {
+      task, hooks, priority,
+      resolve: (value) => { signal?.removeEventListener("abort", cancel); resolve(value); },
+      reject: (error) => { signal?.removeEventListener("abort", cancel); reject(error); }
+    };
+    const cancel = () => {
+      const index = queue.indexOf(entry);
+      if (index >= 0) queue.splice(index, 1);
+      entry.reject(signal?.reason);
+    };
+    signal?.addEventListener("abort", cancel, { once: true });
     const insertionIndex = priority === "interactive"
       ? queue.findIndex((entry) => entry.priority === "background")
       : -1;
@@ -124,7 +139,7 @@ function enqueue<T>(
       hooks?.onQueued?.({ queuePosition, estimatedWaitMs: estimatedWait });
     }
 
-    queue.splice(queueIndex, 0, { task, resolve, reject, hooks, priority });
+    queue.splice(queueIndex, 0, entry);
     void processQueue();
   });
 }
@@ -346,6 +361,7 @@ export async function searchLocations(
 }
 
 export async function reverseGeocode(point: LatLon, hooks?: ReverseGeocodeHooks): Promise<ReverseGeocodeResult> {
+  hooks?.signal?.throwIfAborted();
   const key = cacheKey(point);
   const cached = cache.get(key);
   if (cached) {
@@ -362,6 +378,7 @@ export async function reverseGeocode(point: LatLon, hooks?: ReverseGeocodeHooks)
     });
 
     const response = await fetch(`${NOMINATIM_URL}?${params.toString()}`, {
+      signal: hooks?.signal,
       headers: {
         Accept: "application/json"
       }

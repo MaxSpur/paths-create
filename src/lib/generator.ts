@@ -1,3 +1,4 @@
+import { resolvePairMode } from "./tripModes";
 import { computeBbox } from "./geo";
 import type { GenerationRouteCache } from "./generationRouteCache";
 import { newId } from "./ids";
@@ -6,7 +7,6 @@ import { generateRoundRobinPairs } from "./pairing";
 import { createSeededRandom } from "./sampling";
 import { OrsClient } from "./orsClient";
 import { buildRailGraph, nodePathToCoordinates, shortestPath, snapToNearestNode } from "./railGraph";
-import { buildTripGpx } from "./gpxWriter";
 import type { TransitJourney, TransitNetwork } from "./transitTypes";
 import { routeOutdoorTransfers, withStationAccess } from "./transitWalking";
 import { isInTransitRegion } from "./transitNetwork";
@@ -17,11 +17,12 @@ import type {
   LatLon,
   LonLat,
   StationRecord,
-  WalkPoint
+  WalkPoint,
+  RoutingMode
 } from "./types";
 
 export interface GenerationProgressUpdate {
-  phase: "setup" | "walking" | "driving" | "assemble" | "done";
+  phase: "setup" | "walking" | "cycling" | "driving" | "assemble" | "done";
   message: string;
   current: number;
   total: number;
@@ -29,6 +30,7 @@ export interface GenerationProgressUpdate {
 
 export interface GenerateTripsInput {
   orsApiKey: string;
+  routingProvider?: "hosted" | "local";
   overpassUrl: string;
   originStation: StationRecord;
   destinationStation: StationRecord;
@@ -43,7 +45,8 @@ export interface GenerateTripsInput {
   transitNetwork?: TransitNetwork;
   transitNetworkError?: string;
   automaticTransit?: boolean;
-  routingMode?: "transit" | "driving" | "point_modes";
+  routingMode?: RoutingMode;
+  maxCyclingDistanceM?: number;
   maxAccessDistanceM?: number;
   maxTransfers?: number;
 }
@@ -64,16 +67,6 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function pointTripMode(point: WalkPoint): "metro" | "driving" {
-  return point.tripMode === "driving" ? "driving" : "metro";
-}
-
-function pairUsesDriving(pair: { origin: WalkPoint; destination: WalkPoint }, mode?: GenerateTripsInput["routingMode"]): boolean {
-  if (mode === "driving") return true;
-  if (mode === "transit") return false;
-  return pointTripMode(pair.origin) === "driving" || pointTripMode(pair.destination) === "driving";
-}
-
 function pointLatLon(point: WalkPoint): LatLon {
   return { lat: point.lat, lon: point.lon };
 }
@@ -82,8 +75,8 @@ function coordinateKey(point: LatLon): string {
   return JSON.stringify([point.lat, point.lon]);
 }
 
-function walkingLegCacheKey(from: LatLon, to: LatLon): string {
-  return `walk:v1|foot-walking|elevation=1|${coordinateKey(from)}|${coordinateKey(to)}`;
+function walkingLegCacheKey(from: LatLon, to: LatLon, provider: string): string {
+  return `walk:v2|${provider}|foot-walking|${coordinateKey(from)}|${coordinateKey(to)}`;
 }
 
 function metroPathCacheKey(
@@ -120,7 +113,7 @@ async function buildWalkLegs(
       to: fromStation ? { lat: point.lat, lon: point.lon } : toStation
     }))
     .filter((request) => {
-      const cached = routeCache?.getWalkingLeg(walkingLegCacheKey(request.from, request.to));
+      const cached = routeCache?.getWalkingLeg(walkingLegCacheKey(request.from, request.to, orsClient.cacheIdentity));
       if (!cached) return true;
       map.set(request.id, cached);
       return false;
@@ -138,7 +131,7 @@ async function buildWalkLegs(
       map.set(result.id, result.coordinates);
       const request = requests.find((item) => item.id === result.id);
       if (request) {
-        routeCache?.setWalkingLeg(walkingLegCacheKey(request.from, request.to), result.coordinates);
+        routeCache?.setWalkingLeg(walkingLegCacheKey(request.from, request.to, orsClient.cacheIdentity), result.coordinates);
       }
     }
   }
@@ -186,7 +179,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     total: 6
   });
 
-  if (!input.orsApiKey.trim()) {
+  if (input.routingProvider !== "local" && !input.orsApiKey.trim()) {
     return {
       trips: [],
       report: {
@@ -221,7 +214,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     };
   }
 
-  const orsClient = new OrsClient({ apiKey: input.orsApiKey });
+  const orsClient = new OrsClient({ apiKey: input.orsApiKey, local: input.routingProvider === "local" });
 
   emitProgress({
     phase: "setup",
@@ -245,8 +238,10 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       `Only ${pairings.pairs.length} unused origin/destination pair${pairings.pairs.length === 1 ? "" : "s"} available for this request.`
     );
   }
-  const drivingPairs = pairings.pairs.filter((pair) => pairUsesDriving(pair, input.routingMode));
-  const metroPairs = pairings.pairs.filter((pair) => !pairUsesDriving(pair, input.routingMode));
+  const modeFor = (pair: {origin: WalkPoint; destination: WalkPoint}) => resolvePairMode(pair.origin, pair.destination, input.routingMode);
+  const drivingPairs = pairings.pairs.filter(pair => modeFor(pair) === "driving");
+  const cyclingPairs = pairings.pairs.filter(pair => modeFor(pair) === "cycling");
+  const metroPairs = pairings.pairs.filter(pair => ["metro", "cycling_transit"].includes(modeFor(pair)));
   const needsMetro = metroPairs.length > 0;
   let metroUnavailable: GenerationFailure | null = null;
   let metroCoords: LonLat[] = [];
@@ -261,7 +256,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   }
   if (needsMetro && !input.automaticTransit && input.transitNetwork) {
     emitProgress({ phase: "setup", message: "Finding transit lines and interchanges", current: 2, total: 6 });
-    const key = `transit:v1|${input.transitNetwork.version}|${coordinateKey(input.originStation)}|${coordinateKey(input.destinationStation)}`;
+    const key = `transit:v2|${orsClient.cacheIdentity}|${input.transitNetwork.version}|${coordinateKey(input.originStation)}|${coordinateKey(input.destinationStation)}`;
     transitJourney = input.routeCache?.getTransitJourney(key);
     reusedMetroSetup = Boolean(transitJourney);
     if (!transitJourney) {
@@ -275,7 +270,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       } else {
         try {
           transitJourney = await routeOutdoorTransfers(itinerary, async (from, to) => {
-            const walkKey = walkingLegCacheKey(from, to);
+            const walkKey = walkingLegCacheKey(from, to, orsClient.cacheIdentity);
             const cached = input.routeCache?.getWalkingLeg(walkKey);
             if (cached) return cached;
             const coordinates = await orsClient.getWalkingRoute(from, to);
@@ -476,20 +471,20 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     // Share both successes and failures within this batch, without persisting failures.
     const pendingWalks = new Map<string, Promise<LonLat[]>>();
     let serviceFailure: unknown;
-    const walk = (from: LatLon, to: LatLon): Promise<LonLat[]> => {
+    const streetRoute = (from: LatLon, to: LatLon, cycling = false): Promise<LonLat[]> => {
       if (serviceFailure) return Promise.reject(serviceFailure);
-      const key = walkingLegCacheKey(from, to);
+      const key = cycling ? `cycle:v2|${orsClient.cacheIdentity}|cycling-regular|${coordinateKey(from)}|${coordinateKey(to)}` : walkingLegCacheKey(from, to, orsClient.cacheIdentity);
       const pending = pendingWalks.get(key);
       if (pending) return pending;
-      totalWalkRequests++;
+      if (!cycling) totalWalkRequests++;
       const cached = input.routeCache?.getWalkingLeg(key);
       if (cached) {
-        reusedWalkingLegs++;
+        if (!cycling) reusedWalkingLegs++;
         const result = Promise.resolve(cached);
         pendingWalks.set(key, result);
         return result;
       }
-      const result = orsClient.getWalkingRoute(from, to).then((coords) => {
+      const result = (cycling ? orsClient.getCyclingRoute(from, to) : orsClient.getWalkingRoute(from, to)).then((coords) => {
         if (coords.length > 1) input.routeCache?.setWalkingLeg(key, coords);
         return coords;
       }).catch((error: unknown) => {
@@ -503,18 +498,19 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     const uniquePairs = [...new Map(metroPairs.map((pair) => [pair.pairKey, pair])).values()];
     for (let index = 0; index < uniquePairs.length; index++) {
       const pair = uniquePairs[index];
-      emitProgress({ phase: "walking", message: `Choosing transit stops and walking routes (${index + 1}/${uniquePairs.length})`,
+      emitProgress({ phase: "walking", message: `Choosing transit stops and access routes (${index + 1}/${uniquePairs.length})`,
         current: index, total: uniquePairs.length });
       try {
         if (!isInTransitRegion(pair.origin) || !isInTransitRegion(pair.destination)) {
-          throw new TransitSelectionError("TRANSIT_OUTSIDE_COVERAGE", "Transit routing currently covers Île-de-France. One or both trip points are outside this area; driving remains available.");
+          throw new TransitSelectionError("TRANSIT_OUTSIDE_COVERAGE", "Transit routing currently covers Île-de-France. One or both trip points are outside this area; driving and cycling remain available.");
         }
         if (input.transitNetworkError || !input.transitNetwork) {
           throw new TransitSelectionError("TRANSIT_NETWORK_UNAVAILABLE", input.transitNetworkError ?? "The Île-de-France transit network is unavailable.");
         }
-        const result = await selectAutomaticTransit(input.transitNetwork, pair.origin, pair.destination, walk, {
+        const result = await selectAutomaticTransit(input.transitNetwork, pair.origin, pair.destination, (from, to) => streetRoute(from, to), {
           maxAccessDistanceM: input.maxAccessDistanceM ?? 1500,
-          maxTransfers: input.maxTransfers ?? 3
+          maxTransfers: input.maxTransfers ?? 3,
+          cyclingAccess: modeFor(pair) === "cycling_transit" ? { maxDistanceM: input.maxCyclingDistanceM ?? 5000, route: (from, to) => streetRoute(from, to, true) } : undefined
         });
         automaticJourneys.set(pair.pairKey, result);
       } catch (error) {
@@ -546,6 +542,21 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
     });
   }
 
+  const cyclingRouteMap = new Map<string, LonLat[]>();
+  for (const [index, pair] of cyclingPairs.entries()) {
+    emitProgress({ phase: "cycling", message: `Preparing cycling routes (${index + 1}/${cyclingPairs.length})`, current: index, total: cyclingPairs.length });
+    try {
+      const route = await orsClient.getCyclingRoute(pair.origin, pair.destination);
+      if (route.length < 2) throw new Error("No cycling geometry returned.");
+      cyclingRouteMap.set(pair.pairKey, route);
+    } catch (error) {
+      addFailure(failures, "CYCLING_ROUTE_FAILED", getErrorMessage(error));
+      const status = typeof error === "object" && error !== null && "status" in error ? Number(error.status) : 0;
+      if ([401, 403, 429].includes(status) || status >= 500 || error instanceof TypeError) break;
+    }
+  }
+
+  const { buildTripGpx } = await import("./gpxWriter");
   const trips: GenerationResult["trips"] = [];
   const routeRandom = createSeededRandom(input.seed === undefined ? undefined : input.seed + 0x9e3779b9);
   if (metroUnavailable && metroPairs.length > 0) {
@@ -560,14 +571,18 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
   });
   for (let index = 0; index < pairings.pairs.length; index += 1) {
     const pair = pairings.pairs[index];
-    const useDriving = pairUsesDriving(pair, input.routingMode);
+    const useDriving = modeFor(pair) === "driving";
     const tripNumber = (input.startingTripNumber ?? 1) + trips.length;
     const tripId = newId("trip");
     const tripName = `${input.originStation.name} to ${input.destinationStation.name} #${tripNumber}`;
 
-    if (useDriving) {
-      const alternatives = drivingRouteMap.get(pair.pairKey);
+    if (useDriving || modeFor(pair) === "cycling") {
+      const cycling = modeFor(pair) === "cycling";
+      const routeMode = cycling ? "cycling" : "driving";
+      const cycleRoute = cyclingRouteMap.get(pair.pairKey);
+      const alternatives = cycling ? (cycleRoute ? [cycleRoute] : []) : drivingRouteMap.get(pair.pairKey);
       if (!alternatives || alternatives.length === 0) {
+        if (cycling) continue;
         addFailure(
           failures,
           "DRIVING_ROUTE_FAILED",
@@ -581,7 +596,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         id: tripId,
         name: tripName,
         pairKey: pair.pairKey,
-        routeMode: "driving",
+        routeMode,
         places: input.automaticTransit,
         originStation: input.originStation,
         destinationStation: input.destinationStation,
@@ -590,7 +605,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         walkIn: [],
         metro: [],
         walkOut: [],
-        driving
+        driving: cycling ? undefined : driving,
+        cycling: cycling ? driving : undefined
       });
 
       trips.push({
@@ -598,13 +614,14 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
         pairKey: pair.pairKey,
         fileName: `${sanitizeFileName(input.originStation.name)}-${sanitizeFileName(input.destinationStation.name)}-${String(tripNumber).padStart(3, "0")}.gpx`,
         gpx,
-        routeMode: "driving",
+        routeMode,
         originPoint: pair.origin,
         destinationPoint: pair.destination,
         walkInCoords: [],
         metroCoords: [],
         walkOutCoords: [],
-        drivingCoords: driving
+        drivingCoords: cycling ? [] : driving,
+        cyclingCoords: cycling ? driving : undefined
       });
 
       emitProgress({
@@ -665,7 +682,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       walkIn,
       metro: metroCoords,
       walkOut,
-      transitJourney: tripTransitJourney
+      transitJourney: tripTransitJourney,
+      accessMode: automaticJourney?.accessMode
     });
 
     trips.push({
@@ -680,7 +698,8 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       metroCoords,
       walkOutCoords: walkOut,
       drivingCoords: [],
-      transitJourney: tripTransitJourney
+      transitJourney: tripTransitJourney,
+      accessMode: automaticJourney?.accessMode
     });
 
     emitProgress({

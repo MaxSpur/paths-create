@@ -17,7 +17,12 @@
     "benchmark": "vitest bench --run",
     "bundle:check": "node scripts/check-bundle-size.mjs",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "ors:install": "node scripts/ors-install.mjs",
+    "ors:start": "node scripts/local-ors.mjs start",
+    "ors:status": "node scripts/local-ors.mjs status",
+    "ors:stop": "node scripts/local-ors.mjs stop",
+    "ors:benchmark": "node scripts/benchmark-local-ors.mjs"
   },
   "dependencies": {
     "jszip": "^3.10.1",

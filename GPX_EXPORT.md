@@ -12,11 +12,13 @@ xmlns:odc="https://www.maximspur.com/origin-destination-creator/gpx/1"
 
 Places & Areas exports use trip `schemaVersion="3"` for both transit and driving. Origin/destination collections are `<odc:place kind="area|point">` with ID, name and center coordinates; `radiusM` exists only for areas. These are collection metadata, not boarding stations. Actual sampled endpoints remain `<odc:point>`; real transit stops remain segment `kind="stop"` references.
 
-Transit track structure follows schema 2: access walk, ordered transit/transfer legs, then exit walk. Transit track types are `metro`, `rer`, `train` or `tram`; transfer tracks use `walking`. Segment roles distinguish `transit` and `transfer`. Each leg has stop references; transit legs also carry line ID/name. `geometrySource` distinguishes `gtfs`, `ors` and approximate `station-connector` geometry. These fields are repeated consistently on `odc:segment` and `odc:segmentRef`.
+Transit track structure follows schema 2: access walk, ordered transit/transfer legs, then exit walk. Transit track types are `metro`, `rer`, `train`, `tram` or `bus`; transfer tracks use `walking`. Segment roles distinguish `transit` and `transfer`. Each leg has stop references; transit legs also carry line ID/name. `geometrySource` distinguishes `gtfs`, `ors` and approximate `station-connector` geometry. These fields are repeated consistently on `odc:segment` and `odc:segmentRef`.
 
 Schema 2 trip metadata includes `networkVersion`, `transferCount` and data attribution/license URLs. The legacy trip `routeMode="metro"` and namespace remain compatible with saved point modes; readers must use track modes for actual transport type. No departure times or durations are synthesized. The standard metadata time is file creation time.
 
 Legacy callers without the places flag retain schemas 1/2. Consumers must inspect `schemaVersion` and explicitly support schema 3 rather than treating a collection center as a station or assuming three tracks.
+
+Cycling exports use schema 4 (same place contract as schema 3): direct cycling has `routeMode="cycling"` and one `role="cycling" mode="cycling"` track. Cycling + transit retains `routeMode="metro"`, sets `accessMode="cycling"`, `bikeHandling="leave-at-boarding-station"`, `bikeParking="unverified"`, and starts with `role="cycle-in" mode="cycling"`. Later transit/transfer tracks and the exit walk keep their own modes; no bike carriage or confirmed parking is asserted. Consumers must explicitly support these roles/modes. Points without requested address lookup use `addressStatus="skipped"` and coordinate labels.
 
 Each exported file contains one trip.
 
@@ -41,7 +43,7 @@ Legacy schema 1/2 metadata (schema 3 replaces `<odc:station>` with `<odc:place>`
 - one origin and one destination `<odc:station>`,
 - one origin and one destination `<odc:point>`.
 
-Stations carry `role`, `id`, `name`, `lat`, `lon`, `radiusM`. Points carry `role`, `id`, `tripMode`, `lat`, `lon`, `addressStatus`, with optional `<odc:label>` and structured `<odc:address>`.
+Stations carry `role`, `id`, `name`, `lat`, `lon`, `radiusM`. Points carry `role`, `id`, `tripMode` (`metro`, `driving`, `cycling`, `cycling_transit`), `lat`, `lon`, `addressStatus`, with optional `<odc:label>` and structured `<odc:address>`.
 
 Structured addresses preserve the Nominatim `display_name` and address fields when available:
 
@@ -61,8 +63,8 @@ Existing saved points may only have a label, because structured address storage 
 Each `<odc:segment>` includes:
 
 - `index`: 1-based leg index inside the trip,
-- `role`: `walk-in`, `metro`, `walk-out`, or `driving`,
-- `mode`: `walking`, `metro`, or `driving`,
+- `role`: `walk-in`, `metro`, `walk-out`, `driving`, `transit`, `transfer`, `cycling`, or `cycle-in`,
+- `mode`: `walking`, `driving`, `cycling`, `metro`, `rer`, `train`, `tram`, or `bus`,
 - `pointCount`: number of GPX points in the segment,
 - `distanceM`: approximate haversine segment length in meters,
 - `<odc:from>` and `<odc:to>` endpoint references.
@@ -94,6 +96,6 @@ Example:
 ## Implementation And Validation
 
 - `src/lib/gpxWriter.ts` is the implementation source of truth.
-- `src/test/gpxWriter.test.ts` covers parseable metro and driving output, structured addresses, and 2D coordinates.
+- `src/test/automaticTransit.test.ts` checks cycling/parking metadata and preview modes; `src/test/gpxWriter.test.ts` covers parseable metro and driving output, structured addresses, and 2D coordinates.
 - Run `npm run test:run -- src/test/gpxWriter.test.ts` for a focused contract check, and `npm run check` before release.
 - Coordinate counts and `distanceM` are computed once per segment and reused in both the track and segment-reference metadata; the duplicated values must stay identical.

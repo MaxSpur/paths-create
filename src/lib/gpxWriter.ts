@@ -1,11 +1,12 @@
+import { normalizePointMode } from "./tripModes";
 import { haversineDistanceM, toLatLon } from "./geo";
 import type { LonLat, StructuredAddress, TripRouteMode, WalkPoint } from "./types";
 import type { TransitJourney, TransitLeg, TransitMode } from "./transitTypes";
 
 const ODC_GPX_NAMESPACE = "https://www.maximspur.com/origin-destination-creator/gpx/1";
 
-type SegmentRole = "walk-in" | "metro" | "walk-out" | "driving" | "transit" | "transfer";
-type SegmentMode = "walking" | "driving" | TransitMode;
+type SegmentRole = "cycling" | "cycle-in" | "walk-in" | "metro" | "walk-out" | "driving" | "transit" | "transfer";
+type SegmentMode = "cycling" | "walking" | "driving" | TransitMode;
 type EndpointKind = "point" | "station" | "stop";
 type EndpointRole = "origin" | "destination";
 
@@ -61,6 +62,8 @@ export interface GpxTripInput {
   metro: LonLat[];
   walkOut: LonLat[];
   driving?: LonLat[];
+  cycling?: LonLat[];
+  accessMode?: "cycling";
   transitJourney?: TransitJourney;
 }
 
@@ -99,15 +102,15 @@ function pointName(point: GpxPointInput | undefined): string {
   return point.label?.trim() || point.id;
 }
 
-function pointMode(point: GpxPointInput | undefined): "metro" | "driving" {
-  return point?.tripMode === "driving" ? "driving" : "metro";
+function pointMode(point: GpxPointInput | undefined) {
+  return normalizePointMode(point?.tripMode);
 }
 
 function resolvedRouteMode(input: GpxTripInput): TripRouteMode {
   if (input.routeMode) {
     return input.routeMode;
   }
-  return input.driving && input.driving.length > 0 ? "driving" : "metro";
+  return input.cycling?.length ? "cycling" : input.driving?.length ? "driving" : "metro";
 }
 
 function trackPointToXml([lon, lat, elevation]: LonLat): string {
@@ -257,13 +260,15 @@ function pointToXml(role: EndpointRole, point: GpxPointInput | undefined): strin
 }
 
 function buildSegments(input: GpxTripInput): TripSegment[] {
-  if (input.driving && input.driving.length > 0) {
+  const direct = input.cycling?.length ? input.cycling : input.driving;
+  const directMode = input.cycling?.length ? "cycling" : "driving";
+  if (direct && direct.length > 0) {
     return [
       {
-        role: "driving",
-        mode: "driving",
-        name: `${input.name} - driving`,
-        description: `Driving route from ${pointName(input.originPoint)} to ${pointName(input.destinationPoint)}.`,
+        role: directMode,
+        mode: directMode,
+        name: `${input.name} - ${directMode}`,
+        description: `${directMode === "cycling" ? "Cycling" : "Driving"} route from ${pointName(input.originPoint)} to ${pointName(input.destinationPoint)}.`,
         from: {
           kind: "point",
           role: "origin",
@@ -276,7 +281,7 @@ function buildSegments(input: GpxTripInput): TripSegment[] {
           ref: input.destinationPoint?.id ?? "destination-point",
           name: pointName(input.destinationPoint)
         },
-        coords: input.driving
+        coords: direct
       }
     ];
   }
@@ -285,6 +290,8 @@ function buildSegments(input: GpxTripInput): TripSegment[] {
     const journey = input.transitJourney;
     const access = (role: "walk-in" | "walk-out"): TripSegment => {
       const inbound = role === "walk-in";
+      const cycling = inbound && input.accessMode === "cycling";
+      const accessRole = cycling ? "cycle-in" : role;
       const stop = inbound ? journey.from : journey.to;
       const point = inbound ? input.originPoint : input.destinationPoint;
       const pointEndpoint: SegmentEndpoint = {
@@ -295,8 +302,8 @@ function buildSegments(input: GpxTripInput): TripSegment[] {
         kind: "stop", role: inbound ? "boarding" : "alighting", ref: stop.id, name: stop.name
       };
       return {
-        role, mode: "walking", name: `${input.name} - ${role}`,
-        description: inbound ? `Walking route from ${pointName(point)} to ${stop.name}.`
+        role: accessRole, mode: cycling ? "cycling" : "walking", name: `${input.name} - ${accessRole}`,
+        description: inbound ? `${cycling ? "Cycling" : "Walking"} route from ${pointName(point)} to ${stop.name}.${cycling ? " Bike left at boarding station; parking availability is unverified." : ""}`
           : `Walking route from ${stop.name} to ${pointName(point)}.`,
         from: inbound ? pointEndpoint : stopEndpoint, to: inbound ? stopEndpoint : pointEndpoint,
         coords: inbound ? input.walkIn : input.walkOut, geometrySource: "ors"
@@ -392,7 +399,10 @@ export function buildTripGpx(input: GpxTripInput): string {
         id: input.id,
         pairKey: input.pairKey,
         routeMode,
-        schemaVersion: input.places ? 3 : input.transitJourney ? 2 : 1,
+        schemaVersion: input.accessMode === "cycling" || routeMode === "cycling" ? 4 : input.places ? 3 : input.transitJourney ? 2 : 1,
+        accessMode: input.accessMode,
+        bikeParking: input.accessMode === "cycling" ? "unverified" : undefined,
+        bikeHandling: input.accessMode === "cycling" ? "leave-at-boarding-station" : undefined,
         networkVersion: input.transitJourney?.networkVersion,
         transferCount: input.transitJourney?.transferCount,
         segmentCount: segments.length

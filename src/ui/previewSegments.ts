@@ -1,6 +1,6 @@
 import type { GeneratedTrip, LonLat } from "../lib/types";
 
-export type PreviewSegmentRole = "walk-in" | "metro" | "walk-out" | "driving" | "transit" | "transfer";
+export type PreviewSegmentRole = "cycling" | "cycle-in" | "walk-in" | "metro" | "walk-out" | "driving" | "transit" | "transfer";
 
 export interface PreviewSegment {
   tripId: string;
@@ -12,6 +12,9 @@ export interface PreviewSegment {
 }
 
 function tripSegments(trip: GeneratedTrip, highlighted: boolean): PreviewSegment[] {
+  if (trip.routeMode === "cycling") {
+    return trip.cyclingCoords?.length ? [{ tripId: trip.id, role: "cycling", coords: trip.cyclingCoords, highlighted }] : [];
+  }
   if (trip.routeMode === "driving") {
     return trip.drivingCoords.length > 0
       ? [{ tripId: trip.id, role: "driving", coords: trip.drivingCoords, highlighted }]
@@ -19,7 +22,7 @@ function tripSegments(trip: GeneratedTrip, highlighted: boolean): PreviewSegment
   }
 
   const segments: PreviewSegment[] = [
-    { tripId: trip.id, role: "walk-in", coords: trip.walkInCoords, highlighted, ...(trip.transitJourney ? { dashed: true } : {}) },
+    { tripId: trip.id, role: trip.accessMode === "cycling" ? "cycle-in" : "walk-in", coords: trip.walkInCoords, highlighted, ...(trip.transitJourney && !trip.accessMode ? { dashed: true } : {}) },
     ...(trip.transitJourney
       ? trip.transitJourney.legs.map((leg): PreviewSegment => ({
           tripId: trip.id, role: leg.kind, coords: leg.coordinates, highlighted,
@@ -39,6 +42,8 @@ export function collectPreviewSegments(
     ? trips.find((trip) => trip.id === selectedTripId)
     : undefined;
   const seenByRole: Record<PreviewSegmentRole, Set<LonLat[]>> = {
+    cycling: new Set(),
+    "cycle-in": new Set(),
     "walk-in": new Set(),
     metro: new Set(),
     "walk-out": new Set(),

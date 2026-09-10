@@ -23,3 +23,6 @@ yarn-debug.log*
 pnpm-debug.log*
 CODEX_MEMO.md
 Logs/
+
+# Local routing runtime, data and graphs
+.local-ors/

@@ -1,6 +1,6 @@
 # Project guidance
 
-Browser-only Vite/TypeScript app for synthetic walking–rail–walking and direct-driving GPX trips. Keep the runtime in the browser; no backend.
+Browser-only Vite/TypeScript app for synthetic transit (including bus), cycling and driving GPX trips. UI/transit processing stays in the browser; optional native local ORS supplies street routes. See OFFLINE_ROUTING.md for setup and operations.
 
 ## Read by task
 
@@ -22,6 +22,7 @@ Read only the relevant document or section; verify changing facts in source and 
 - Full gate: `npm run check` (tests, build, initial-bundle budget).
 - Focused test: `npm run test:run -- src/test/<name>.test.ts`.
 - Performance: `npm run benchmark`.
+- Local ORS: `npm run ors:install`, `ors:start`, `ors:status`, `ors:stop`; `.local-ors/` is ignored runtime/data. `ors:benchmark -- 1000` explicitly calls only that local server.
 
 Run the full gate once before code/config handoff. Focused tests are useful during iteration; do not repeat passing checks without a change or unresolved concern. Documentation-only edits need link/path, contract, and diff checks; CI still runs its configured gate.
 

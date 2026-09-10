@@ -43,6 +43,37 @@ describe("published IDFM snapshot", () => {
     }
   });
 
+  it("routes a served bus stop pair even when nearby transfer arrivals compete", () => {
+    const from = network.stops.findIndex((stop) => stop.id === "IDFM:30006");
+    const to = network.stops.findIndex((stop) => stop.id === "IDFM:495675");
+    expect(from).toBeGreaterThanOrEqual(0);
+    expect(to).toBeGreaterThanOrEqual(0);
+    const journey = findTransitJourney(network, network.stops[from], network.stops[to], {
+      originStopCosts: new Map([[from, 0]]), destinationStopCosts: new Map([[to, 0]])
+    });
+    expect(journey).not.toBeNull();
+    expect(journey!.legs.filter((leg) => leg.kind === "transit").map((leg) => leg.mode)).toContain("bus");
+    expect(journey!.from.id).toBe(network.stops[from].id);
+    expect(journey!.to.id).toBe(network.stops[to].id);
+  });
+
+  it("connects a bus-only boarding stop to RER A through declared interchanges", () => {
+    const from = network.stops.findIndex((stop) => stop.id === "IDFM:30006");
+    const to = network.stops.findIndex((stop) => stop.id === "IDFM:monomodalStopPlace:58937");
+    const journey = findTransitJourney(network, network.stops[from], network.stops[to], {
+      originStopCosts: new Map([[from, 0]]), destinationStopCosts: new Map([[to, 0]]), maxTransfers: 3
+    });
+    expect(journey).not.toBeNull();
+    const rides = journey!.legs.filter((leg) => leg.kind === "transit");
+    expect(rides[0].mode).toBe("bus");
+    expect(rides.at(-1)?.mode).toBe("rer");
+    expect(rides.at(-1)?.line?.name).toBe("A");
+    expect(journey!.transferCount).toBeLessThanOrEqual(3);
+    for (let i = 1; i < journey!.legs.length; i++) {
+      expect(journey!.legs[i].coordinates[0]).toEqual(journey!.legs[i - 1].coordinates.at(-1));
+    }
+  });
+
   it("contains valid directed shapes, offsets, stop permissions and transfer indexes", () => {
     expect(network.source.license).toBeTruthy();
     for (const pattern of network.patterns) {

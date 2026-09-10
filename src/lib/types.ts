@@ -1,8 +1,8 @@
 import type { TransitJourney } from "./transitTypes";
 
 export type PairingMode = "round_robin_shuffle";
-export type PointTripMode = "metro" | "driving";
-export type TripRouteMode = "metro" | "driving";
+export type PointTripMode = "metro" | "driving" | "cycling" | "cycling_transit";
+export type TripRouteMode = "metro" | "driving" | "cycling";
 
 export interface StructuredAddress {
   displayName?: string;
@@ -15,11 +15,11 @@ export interface WalkPoint {
   lon: number;
   label?: string;
   address?: StructuredAddress;
-  addressStatus?: "resolving" | "resolved" | "failed";
+  addressStatus?: "resolving" | "resolved" | "failed" | "skipped";
   tripMode?: PointTripMode;
 }
 
-export type RoutingMode = "transit" | "driving" | "point_modes";
+export type RoutingMode = "transit" | "driving" | "cycling" | "cycling_transit" | "point_modes";
 
 export interface PlaceRecord {
   kind?: "area" | "point";
@@ -37,6 +37,8 @@ export type StationRecord = PlaceRecord;
 export interface AppState {
   schemaVersion: number;
   orsApiKey: string;
+  routingProvider?: "hosted" | "local";
+  lookupAddresses?: boolean;
   overpassUrl: string;
   stations: StationRecord[];
   selectedOriginStationId: string | null;
@@ -47,6 +49,7 @@ export interface AppState {
     pairingMode: PairingMode;
     routingMode?: RoutingMode;
     maxAccessDistanceM?: number;
+    maxCyclingDistanceM?: number;
     maxTransfers?: number;
   };
   randomPointDefaults: {
@@ -93,6 +96,8 @@ export interface GeneratedTrip {
   transitJourney?: TransitJourney;
   walkOutCoords: LonLat[];
   drivingCoords: LonLat[];
+  cyclingCoords?: LonLat[];
+  accessMode?: "cycling";
 }
 
 export interface GenerationFailure {

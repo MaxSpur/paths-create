@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a dated synthetic rail network from an IDFM GTFS ZIP (Python stdlib).
+"""Build a dated synthetic transit network from an IDFM GTFS ZIP (Python stdlib).
 
 Usage: python3 scripts/build-transit-network.py INPUT.zip --retrieved YYYY-MM-DD
 No network access. Scheduled times are deliberately omitted; boarding permissions,
@@ -92,7 +92,7 @@ def align_shape(coordinates, stop_coordinates, max_distance, tolerance):
     offsets = [0]
     for start, end in zip(positions, positions[1:]):
         if end <= start + 1e-8:
-            # Distinct served stops must have an actual directed rail section.
+            # Distinct served stops must have an actual directed transit section.
             return None
         section = [at(start)]
         section.extend(coordinates[index] for index in range(int(start) + 1, math.ceil(end)))
@@ -111,13 +111,13 @@ def build(args):
     with zipfile.ZipFile(args.input) as archive:
         agencies = {row["agency_id"]: row["agency_name"] for row in records(archive, "agency")}
         routes = sorted((row for row in records(archive, "routes")
-                         if row["route_type"] in {"0", "1", "2"}
+                         if row["route_type"] in {"0", "1", "2", "3"}
                          and (args.include_ter or agencies.get(row["agency_id"], "").upper() != "TER")), key=lambda row: row["route_id"])
         line_indexes = {row["route_id"]: index for index, row in enumerate(routes)}
         lines = []
         for row in routes:
             name = row["route_short_name"] or row["route_long_name"]
-            mode = {"0": "tram", "1": "metro"}.get(row["route_type"], "rer" if name in "ABCDE" and len(name) == 1 else "train")
+            mode = {"0": "tram", "1": "metro", "3": "bus"}.get(row["route_type"], "rer" if name in "ABCDE" and len(name) == 1 else "train")
             color = row.get("route_color", "")
             lines.append({"id": row["route_id"], "name": name, "mode": mode, "color": "#" + (color if re.fullmatch(r"[0-9A-Fa-f]{6}", color) else "64748b")})
         trips = {row["trip_id"]: (line_indexes[row["route_id"]], row["shape_id"])
@@ -154,6 +154,9 @@ def build(args):
         patterns_raw = []
         print(f"Aligning {len(unique)} patterns / {len(shapes)} source shapes…", flush=True)
         for line, shape, entries in sorted(unique):
+            if not any(entry[1] for entry in entries[:-1]) or not any(entry[2] for entry in entries[1:]):
+                statistics["rejectedNoRegularBoarding"] += 1
+                continue
             if len(entries) < 2 or any(entry[0] not in all_stops for entry in entries):
                 statistics["rejectedInvalidStops"] += 1
                 continue
@@ -167,6 +170,13 @@ def build(args):
                 continue
             coordinates, offsets = aligned
             patterns_raw.append((line, entries, coordinates, offsets))
+        statistics["selectedLines"] = len(lines)
+        retained_lines = sorted({line for line, _, _, _ in patterns_raw})
+        remap_lines = {line: index for index, line in enumerate(retained_lines)}
+        lines = [lines[line] for line in retained_lines]
+        patterns_raw = [(remap_lines[line], entries, coordinates, offsets)
+                        for line, entries, coordinates, offsets in patterns_raw]
+        line_indexes = {line["id"]: index for index, line in enumerate(lines)}
         retained_ids = sorted({entry[0] for _, entries, _, _ in patterns_raw for entry in entries})
         stop_indexes = {stop_id: index for index, stop_id in enumerate(retained_ids)}
         stops = []
@@ -211,7 +221,7 @@ def build(args):
         "licenses": [{"component": "service-and-transfer-data", "name": "Licence Mobilité", "url": MOBILITY_LICENSE},
                      {"component": "shapes", "name": "ODbL-1.0", "url": ODBL_LICENSE}],
         "organizations": attribution_rows,
-        "processing": {"builder": "scripts/build-transit-network.py", "version": 1, "routeTypes": [0, 1, 2],
+        "processing": {"builder": "scripts/build-transit-network.py", "version": 2, "routeTypes": [0, 1, 2, 3],
                        "excludedTER": not args.include_ter, "maxStopShapeDistanceMeters": args.max_stop_distance,
                        "simplificationMeters": args.simplify, "statistics": dict(statistics)},
         "limitations": ["Synthetic service connectivity only; schedules, travel times and operating-day restrictions omitted.",
@@ -219,7 +229,7 @@ def build(args):
                         "Transfers are explicit GTFS connections; internal walking geometry is not supplied by transfers.txt.",
                         "Patterns with missing geometry, nonmonotonic stop alignment or excessive stop-to-shape distance are excluded."]
     }
-    network = {"schemaVersion": 1, "version": f"idfm-{args.retrieved}-{digest.hexdigest()[:12]}", "source": source,
+    network = {"schemaVersion": 1, "version": f"idfm-{args.retrieved}-{digest.hexdigest()[:12]}-v2", "source": source,
                "stops": stops, "lines": lines, "patterns": patterns, "transfers": transfers}
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(network, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
