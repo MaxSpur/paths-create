@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { selectAutomaticTransit } from "../lib/automaticTransit";
@@ -75,24 +76,26 @@ describe("published IDFM snapshot", () => {
   });
 
   it("contains valid directed shapes, offsets, stop permissions and transfer indexes", () => {
-    expect(network.source.license).toBeTruthy();
-    for (const pattern of network.patterns) {
-      expect(network.lines[pattern.line]).toBeDefined();
-      expect(pattern.stops.length).toBe(pattern.offsets.length);
-      expect(pattern.pickup?.length).toBe(pattern.stops.length);
-      expect(pattern.dropoff?.length).toBe(pattern.stops.length);
+    // Validate every entry without constructing hundreds of thousands of matcher objects.
+    assert(network.source.license, "Snapshot license is missing");
+    for (const [patternIndex, pattern] of network.patterns.entries()) {
+      const context = `Pattern ${patternIndex}`;
+      assert(network.lines[pattern.line], `${context}: invalid line index`);
+      assert.equal(pattern.stops.length, pattern.offsets.length, `${context}: offsets length`);
+      assert.equal(pattern.pickup?.length, pattern.stops.length, `${context}: pickup length`);
+      assert.equal(pattern.dropoff?.length, pattern.stops.length, `${context}: dropoff length`);
       for (let i = 0; i < pattern.stops.length; i++) {
         const stop = network.stops[pattern.stops[i]];
         const point = pattern.coordinates[pattern.offsets[i]];
-        expect(stop).toBeDefined();
-        expect(point.every(Number.isFinite)).toBe(true);
-        expect(haversineDistanceM(stop, toLatLon(point))).toBeLessThan(405);
-        if (i) expect(pattern.offsets[i]).toBeGreaterThan(pattern.offsets[i - 1]);
+        assert(stop, `${context}, stop ${i}: invalid stop index`);
+        assert(point?.every(Number.isFinite), `${context}, stop ${i}: missing/nonfinite coordinate`);
+        assert(haversineDistanceM(stop, toLatLon(point)) < 405, `${context}, stop ${i}: shape more than 405 m from stop`);
+        if (i) assert(pattern.offsets[i] > pattern.offsets[i - 1], `${context}, stop ${i}: offsets not increasing`);
       }
     }
     for (const [from, to] of network.transfers) {
-      expect(network.stops[from]).toBeDefined();
-      expect(network.stops[to]).toBeDefined();
+      assert(network.stops[from], `Transfer: invalid origin ${from}`);
+      assert(network.stops[to], `Transfer: invalid destination ${to}`);
     }
-  });
+  }, 15_000); // Dataset-wide integrity check: allow headroom on shared CI runners.
 });

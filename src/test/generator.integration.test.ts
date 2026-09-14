@@ -136,6 +136,9 @@ describe("generateTrips integration", () => {
       runB.trips.map((trip) => `${trip.originPoint.id}-${trip.destinationPoint.id}`)
     );
     expect(runA.trips[0]?.gpx).toContain("<ele>");
+    expect(Object.getOwnPropertyDescriptor(runA.trips[0], "gpx")?.get).toBeTypeOf("function");
+    expect(runA.trips[0].exportInput?.originStation).not.toHaveProperty("walkPoints");
+    expect(runA.trips[0].exportInput?.originPoint).not.toBe(runA.trips[0].originPoint);
     expect(runA.trips[0]?.gpx).toContain("xmlns:odc=");
     expect(runA.trips[0]?.gpx).toContain('routeMode="metro"');
     expect(runA.trips[0]?.gpx).toContain('<type>walking</type>');

@@ -82,10 +82,13 @@ describe("renderPanel", () => {
     };
     model.generatedTrips = [
       { ...baseTrip, routeMode: "cycling" },
-      { ...baseTrip, id: "bike-transit", routeMode: "metro", accessMode: "cycling", transitJourney: transitJourneyFixture() }
+      { ...baseTrip, id: "bike-transit", walkInCoords: baseTrip.cyclingCoords, cyclingCoords: undefined, routeMode: "metro", accessMode: "cycling", transitJourney: transitJourneyFixture() }
     ];
     renderPanel(container, model, createCallbacks());
-    expect(Array.from(container.querySelectorAll(".trip-mode"), (el) => el.textContent)).toEqual(["Cycling", "Cycling + transit"]);
+    expect(Array.from(container.querySelectorAll(".compact-trip .trip-mode"), el => el.getAttribute("aria-label"))).toEqual(["Cycling", "Cycling + transit"]);
+    expect(container.querySelector(".trip-access")).toBeNull();
+    model.selectedTripId = "bike-transit";
+    renderPanel(container, model, createCallbacks());
     expect(container.querySelector(".trip-access")?.textContent).toContain("Bike access 1.5 km · Exit walk 0 m");
   });
 
@@ -413,7 +416,7 @@ describe("renderPanel", () => {
     renderPanel(container, model, callbacks);
 
     expect(container.querySelector(".trips-table")).not.toBeNull();
-    expect(container.querySelector(".trip-mode")?.textContent).toBe("Transit");
+    expect(container.querySelector(".trip-mode")?.getAttribute("aria-label")).toBe("Transit");
     expect(container.textContent).toContain("Snapshot: fixture-1");
     expect(container.querySelector('a[href="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm"]')?.textContent).toBe("Licence Mobilité");
     expect(container.textContent).toContain("METRO 5 <&> → RER A · 1 change · Approximate station connector");
@@ -552,6 +555,8 @@ describe("renderPanel", () => {
       metroCoords: [], drivingCoords: [], transitJourney: journey
     }];
     const container = document.createElement("div");
+    renderPanel(container, model, createCallbacks());
+    model.selectedTripId = "chosen-stops";
     renderPanel(container, model, createCallbacks());
     expect(container.querySelector(".trip-access")?.textContent).toBe('Access + exit walk 334 m · via <img src=x onerror="alert(1)"> Boarding → Alighting <&>');
     expect(container.querySelector(".trip-access img")).toBeNull();

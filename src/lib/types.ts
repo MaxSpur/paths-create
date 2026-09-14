@@ -87,7 +87,9 @@ export interface GeneratedTrip {
   id: string;
   pairKey: string;
   fileName: string;
+  /** Compatibility accessor; generated lazily from exportInput. */
   gpx: string;
+  exportInput?: import("./gpxWriter").GpxTripInput;
   routeMode: TripRouteMode;
   originPoint: WalkPoint;
   destinationPoint: WalkPoint;
@@ -155,4 +157,12 @@ export interface OverpassWayElement {
 
 export interface OverpassResponse {
   elements: Array<OverpassNodeElement | OverpassWayElement>;
+}
+
+export interface GeneratedBatch {
+  id: string;
+  name: string;
+  createdAt: string;
+  trips: GeneratedTrip[];
+  report: GenerationReport;
 }

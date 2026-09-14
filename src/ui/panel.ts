@@ -1,5 +1,6 @@
+import {pageNumber, pageTrips, BATCH_PAGE_SIZE, TRIP_PAGE_SIZE} from "../lib/tripBatches";
 import { normalizePointMode, nextPointMode, MODE_LABELS, MODE_SHORT } from "../lib/tripModes";
-import type { GeneratedTrip, GenerationReport, LonLat, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import type { GeneratedBatch, GeneratedTrip, GenerationReport, LonLat, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import {
   formatStationRadius,
   STATION_RADIUS_SLIDER_STEPS,
@@ -35,6 +36,14 @@ export interface PanelModel {
   lookupAddresses?: boolean;
   nearbyCandidates: StationCandidate[];
   generatedTrips: GeneratedTrip[];
+  batches?: GeneratedBatch[];
+  expandedBatchId?: string | null;
+  batchPage?: number;
+  tripPage?: number;
+  exporting?: boolean;
+  exportFormat?: "parquet" | "gpx";
+  exportScope?: "batch" | "all";
+  exportStatus?: string;
   selectedTripId: string | null;
   pointClocks: Record<string, PointClockView>;
   scrollSelectedIntoView?: boolean;
@@ -81,6 +90,13 @@ export interface PanelCallbacks {
   onDeleteTrip: (tripId: string) => void;
   onDeleteAllTrips: () => void;
   onDownload: () => void;
+  onToggleBatch?: (id: string) => void;
+  onDeleteBatch?: (id: string) => void;
+  onBatchPage?: (page: number) => void;
+  onTripPage?: (page: number) => void;
+  onExportFormat?: (format: "parquet" | "gpx") => void;
+  onExportScope?: (scope: "batch" | "all") => void;
+  onCancelExport?: () => void;
   onResetAll: () => void;
 }
 
@@ -152,14 +168,14 @@ function distanceLabel(paths: LonLat[][]): string {
   return distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${Math.round(distanceM)} m`;
 }
 
-function tripRow(trip: GeneratedTrip, selectedTripId: string | null, stations: StationRecord[]): string {
+function tripDetailRow(trip: GeneratedTrip, selectedTripId: string | null, stations: StationRecord[]): string {
   const isSelected = trip.id === selectedTripId;
   const modeLabel = trip.routeMode === "driving" ? "Driving" : trip.routeMode === "cycling" ? "Cycling" : trip.accessMode === "cycling" ? "Cycling + transit" : trip.transitJourney ? "Transit" : "Metro";
   const journey = trip.transitJourney;
   const rides = journey?.legs.filter((leg) => leg.kind === "transit") ?? [];
   const itinerary = journey ? `${rides
     .map((leg) => `${leg.mode.toUpperCase()} ${leg.line?.name ?? ""}`.trim()).join(" → ")} · ${journey.transferCount} change${journey.transferCount === 1 ? "" : "s"}${journey.legs.some((leg) => leg.geometrySource === "station-connector") ? " · Approximate station connector" : ""}` : "";
-  const access = rides.length ? `${trip.accessMode === "cycling" ? `Bike access ${distanceLabel([trip.cyclingCoords ?? []])} · Exit walk ${distanceLabel([trip.walkOutCoords])}` : `Access + exit walk ${distanceLabel([trip.walkInCoords, trip.walkOutCoords])}`} · via ${rides[0].from.name} → ${rides[rides.length - 1].to.name}` : "";
+  const access = rides.length ? `${trip.accessMode === "cycling" ? `Bike access ${distanceLabel([trip.cyclingCoords ?? trip.walkInCoords])} · Exit walk ${distanceLabel([trip.walkOutCoords])}` : `Access + exit walk ${distanceLabel([trip.walkInCoords, trip.walkOutCoords])}`} · via ${rides[0].from.name} → ${rides[rides.length - 1].to.name}` : "";
   return `<tr data-trip-id="${escapeHtml(trip.id)}" class="${isSelected ? "is-selected" : ""}" title="${escapeHtml(trip.fileName)}">
     <td>
       <span class="trip-mode ${trip.routeMode}">${modeLabel}</span>
@@ -173,6 +189,38 @@ function tripRow(trip: GeneratedTrip, selectedTripId: string | null, stations: S
       <button data-trip-delete type="button">Delete</button>
     </td>
   </tr>`;
+}
+
+function compactTripRow(trip: GeneratedTrip, model: PanelModel, index: number): string {
+  const mode = trip.routeMode === "driving" ? "D" : trip.routeMode === "cycling" ? "C" : trip.accessMode === "cycling" ? "C+T" : "T";
+  const modeName = trip.routeMode === "driving" ? "Driving" : trip.routeMode === "cycling" ? "Cycling" : trip.accessMode === "cycling" ? "Cycling + transit" : "Transit";
+  const rides = trip.transitJourney?.legs.filter(leg => leg.kind === "transit") ?? [];
+  const chips = rides.slice(0, 3).map(leg => {
+    const color = leg.line?.color?.replace(/^#/, "") ?? "";
+    const style = /^[0-9a-f]{6}$/i.test(color) ? ` style="border-color:#${color}"` : "";
+    const label = `${leg.mode.toUpperCase()} ${leg.line?.name ?? ""}`.trim();
+    return `<span class="line-chip"${style} title="${escapeHtml(label)}">${escapeHtml(label)}</span>`;
+  }).join("");
+  return `<tr data-trip-id="${escapeHtml(trip.id)}" tabindex="0" aria-selected="${trip.id === model.selectedTripId}" class="compact-trip ${trip.id === model.selectedTripId ? "is-selected" : ""}" title="${escapeHtml(trip.fileName)}">
+    <td class="trip-number">${index + 1}</td><td><span class="trip-mode ${trip.routeMode}" title="${modeName}" aria-label="${modeName}">${mode}</span></td>
+    <td><span class="trip-label">${escapeHtml(tripLabel(trip, model.stations))}</span><span class="trip-chips">${chips}${rides.length > 3 ? `<span>+${rides.length - 3}</span>` : ""}${trip.transitJourney?.transferCount ? `<span title="Line changes" aria-label="${trip.transitJourney.transferCount} line changes">↔${trip.transitJourney.transferCount}</span>` : ""}</span></td>
+    <td><button data-trip-delete type="button" aria-label="Delete trip ${index + 1}" title="Delete trip">×</button></td></tr>`;
+}
+
+function batchBrowser(model: PanelModel): string {
+  // Legacy panel callers retain a single implicit batch.
+  const batches = model.batches;
+  if (!batches) return `<div class="generated-trip-list"><table class="trips-table"><tbody>${model.generatedTrips.map((trip, i) => compactTripRow(trip, model, i)).join("")}</tbody></table></div>`;
+  const page = pageNumber(model.batchPage ?? 0, batches.length, BATCH_PAGE_SIZE);
+  const visible = batches.slice(page * BATCH_PAGE_SIZE, (page + 1) * BATCH_PAGE_SIZE);
+  return `<div class="batch-browser">${visible.map(batch => {
+    const open = batch.id === model.expandedBatchId;
+    const tripPage = pageNumber(model.tripPage ?? 0, batch.trips.length, TRIP_PAGE_SIZE);
+    return `<div class="trip-batch">
+      <div class="batch-heading"><button type="button" data-batch-toggle="${escapeHtml(batch.id)}" aria-expanded="${open}" class="batch-toggle"><span>${open ? "▾" : "▸"} ${escapeHtml(batch.name)}</span><small>${batch.trips.length.toLocaleString()} trips · ${escapeHtml(new Date(batch.createdAt).toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"}))}${batch.report.failedTrips ? ` · ${batch.report.failedTrips} failed` : ""}</small></button><button type="button" data-batch-delete="${escapeHtml(batch.id)}" title="Delete batch" aria-label="Delete batch ${escapeHtml(batch.name)}">×</button></div>
+      ${open ? `<div class="generated-trip-list" data-page-key="${escapeHtml(batch.id)}:${tripPage}"><table class="trips-table"><tbody>${pageTrips(batch, tripPage).map((trip, i) => compactTripRow(trip, model, tripPage * TRIP_PAGE_SIZE + i)).join("")}</tbody></table></div><div class="batch-pager"><button data-trip-page="${tripPage - 1}" ${tripPage === 0 ? "disabled" : ""} aria-label="Previous trips">‹</button><span>${batch.trips.length ? tripPage * TRIP_PAGE_SIZE + 1 : 0}–${Math.min((tripPage + 1) * TRIP_PAGE_SIZE, batch.trips.length)} / ${batch.trips.length}</span><label class="page-jump">Page <input data-trip-page-jump type="number" min="1" max="${Math.max(1, Math.ceil(batch.trips.length / TRIP_PAGE_SIZE))}" value="${tripPage + 1}" aria-label="Trip page" /> / ${Math.max(1, Math.ceil(batch.trips.length / TRIP_PAGE_SIZE))}</label><button data-trip-page="${tripPage + 1}" ${(tripPage + 1) * TRIP_PAGE_SIZE >= batch.trips.length ? "disabled" : ""} aria-label="Next trips">›</button></div>` : ""}
+    </div>`;
+  }).join("")}${batches.length > BATCH_PAGE_SIZE ? `<div class="batch-pager"><button data-batch-page="${page - 1}" ${page === 0 ? "disabled" : ""} aria-label="Previous batches">‹</button><span>Batch page ${page + 1} / ${Math.ceil(batches.length / BATCH_PAGE_SIZE)}</span><button data-batch-page="${page + 1}" ${(page + 1) * BATCH_PAGE_SIZE >= batches.length ? "disabled" : ""} aria-label="Next batches">›</button></div>` : ""}</div>`;
 }
 
 function applyPointClockElementState(element: HTMLElement, pointClock: PointClockView): void {
@@ -333,6 +381,12 @@ function progressHtml(model: PanelModel): string {
 export function renderPanel(container: HTMLElement, model: PanelModel, callbacks: PanelCallbacks): void {
   const activeStation = model.stations.find((s) => s.id === model.activeStationId) ?? null;
   const scrollState = capturePanelScroll(container);
+  const focused = container.contains(document.activeElement) ? document.activeElement as HTMLElement : null;
+  const focusedTrip = focused?.closest<HTMLElement>("[data-trip-id]")?.dataset.tripId;
+  const focusedBatch = focused?.getAttribute("data-batch-toggle");
+  const focusedPager = focused?.matches("[data-trip-page], [data-batch-page]") ? focused.getAttribute("aria-label") : null;
+  const focusedId = focused?.id;
+  const oldTripPage = container.querySelector<HTMLElement>(".generated-trip-list")?.dataset.pageKey;
   const oldFilter = container.querySelector<HTMLInputElement>("#placeFilter");
   const filterValue = oldFilter?.value ?? "";
   const filterFocused = oldFilter !== null && document.activeElement === oldFilter;
@@ -405,24 +459,13 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
 
     <section>
       <h2>Generated Trips</h2>
-      ${transitAttribution(model.generatedTrips)}
-      <div class="generated-trip-summary">${model.generatedTrips.length} trip${model.generatedTrips.length === 1 ? "" : "s"} in list</div>
-      <div class="btn-row">
-        <button id="download" type="button" ${model.canDownload ? "" : "disabled"}>Download GPX ZIP</button>
-        <button id="deleteAllTrips" type="button" ${model.generatedTrips.length > 0 ? "" : "disabled"}>Delete all</button>
-      </div>
-      ${
-        model.generatedTrips.length > 0
-          ? `<div class="generated-trip-list">
-              <table class="trips-table">
-                <thead><tr><th>Mode</th><th>Trip</th><th>Actions</th></tr></thead>
-                <tbody>
-                  ${model.generatedTrips.map((trip) => tripRow(trip, model.selectedTripId, model.stations)).join("")}
-                </tbody>
-              </table>
-            </div>`
-          : `<div class="empty-list-note">Generated trips will be added here without replacing previous successful trips.</div>`
-      }
+      <div class="generated-trip-summary">${model.generatedTrips.length.toLocaleString()} trips · ${model.batches?.length ?? (model.generatedTrips.length ? 1 : 0)} batch${(model.batches?.length ?? (model.generatedTrips.length ? 1 : 0)) === 1 ? "" : "es"}</div>
+      <div class="export-controls"><label>Format<select id="exportFormat" ${model.exporting ? "disabled" : ""}><option value="parquet" ${model.exportFormat !== "gpx" ? "selected" : ""}>GeoParquet</option><option value="gpx" ${model.exportFormat === "gpx" ? "selected" : ""}>GPX ZIP</option></select></label><label>Scope<select id="exportScope" ${model.exporting ? "disabled" : ""}><option value="batch" ${model.exportScope !== "all" ? "selected" : ""}>Open batch</option><option value="all" ${model.exportScope === "all" ? "selected" : ""}>All batches</option></select></label></div>
+      <div class="btn-row"><button id="download" type="button" ${model.canDownload && !model.exporting ? "" : "disabled"}>${model.exporting ? "Exporting…" : "Export"}</button>${model.exporting ? `<button id="cancelExport" type="button">Cancel export</button>` : ""}<button id="deleteAllTrips" type="button" ${model.generatedTrips.length > 0 ? "" : "disabled"}>Delete all</button></div>
+      ${model.exportStatus ? `<div role="status" class="export-status">${escapeHtml(model.exportStatus)}</div>` : ""}
+      ${model.generatedTrips.length || model.batches?.length ? batchBrowser(model) : `<div class="empty-list-note">Each Generate action adds a batch. Trips remain available until deleted or the page is reloaded.</div>`}
+      ${model.batches?.length ? `<div class="points-help">Map previews the open page (up to ${TRIP_PAGE_SIZE} trips), plus the selected trip. Exports include every trip in the chosen scope.</div>` : ""}
+      ${model.selectedTripId && model.generatedTrips.some(t => t.id === model.selectedTripId) ? `<div class="selected-trip-details"><h3>Selected trip</h3><table class="trips-table"><tbody>${tripDetailRow(model.generatedTrips.find(t => t.id === model.selectedTripId)!, model.selectedTripId, model.stations).replace('data-trip-id=', 'data-trip-detail-id=')}</tbody></table>${transitAttribution([model.generatedTrips.find(t => t.id === model.selectedTripId)!])}</div>` : `<div class="points-help">Select a trip for its full itinerary and details.</div>`}
     </section>
 
     <section>
@@ -578,14 +621,31 @@ export function renderPanel(container: HTMLElement, model: PanelModel, callbacks
     if (!tripId) continue;
 
     row.addEventListener("click", () => callbacks.onSelectTrip(tripId));
+    row.addEventListener("keydown", event => {if (event.target === row && (event.key === "Enter" || event.key === " ")) {event.preventDefault(); callbacks.onSelectTrip(tripId);}});
     row.querySelector<HTMLButtonElement>("[data-trip-delete]")?.addEventListener("click", (event) => {
       event.stopPropagation();
       callbacks.onDeleteTrip(tripId);
     });
   }
+  container.querySelector<HTMLSelectElement>("#exportFormat")?.addEventListener("change", event => callbacks.onExportFormat?.((event.target as HTMLSelectElement).value as "parquet" | "gpx"));
+  container.querySelector<HTMLSelectElement>("#exportScope")?.addEventListener("change", event => callbacks.onExportScope?.((event.target as HTMLSelectElement).value as "batch" | "all"));
+  container.querySelector("#cancelExport")?.addEventListener("click", () => callbacks.onCancelExport?.());
+  for (const button of container.querySelectorAll<HTMLButtonElement>("[data-batch-toggle]")) button.addEventListener("click", () => callbacks.onToggleBatch?.(button.dataset.batchToggle!));
+  for (const button of container.querySelectorAll<HTMLButtonElement>("[data-batch-delete]")) button.addEventListener("click", () => callbacks.onDeleteBatch?.(button.dataset.batchDelete!));
+  container.querySelector<HTMLInputElement>("[data-trip-page-jump]")?.addEventListener("change", event => callbacks.onTripPage?.(Math.max(0, (Number((event.target as HTMLInputElement).value) || 1) - 1)));
+  for (const button of container.querySelectorAll<HTMLButtonElement>("[data-trip-page]")) button.addEventListener("click", () => callbacks.onTripPage?.(Number(button.dataset.tripPage)));
+  for (const button of container.querySelectorAll<HTMLButtonElement>("[data-batch-page]")) button.addEventListener("click", () => callbacks.onBatchPage?.(Number(button.dataset.batchPage)));
+  container.querySelector("[data-trip-detail-id] [data-trip-delete]")?.addEventListener("click", () => {if (model.selectedTripId) callbacks.onDeleteTrip(model.selectedTripId);});
   container.querySelector<HTMLButtonElement>("#resetAll")?.addEventListener("click", callbacks.onResetAll);
 
   restorePanelScroll(container, scrollState);
+  const newTripList = container.querySelector<HTMLElement>(".generated-trip-list");
+  if (newTripList && oldTripPage !== newTripList.dataset.pageKey) newTripList.scrollTop = 0;
+  const restoreFocus = focusedTrip ? Array.from(container.querySelectorAll<HTMLElement>("[data-trip-id]")).find(row => row.dataset.tripId === focusedTrip)
+    : focusedBatch ? Array.from(container.querySelectorAll<HTMLElement>("[data-batch-toggle]")).find(button => button.getAttribute("data-batch-toggle") === focusedBatch)
+    : focusedPager ? Array.from(container.querySelectorAll<HTMLElement>("[data-trip-page], [data-batch-page]")).find(button => button.getAttribute("aria-label") === focusedPager && !button.hasAttribute("disabled"))
+    : focusedId ? Array.from(container.querySelectorAll<HTMLElement>("[id]")).find(element => element.id === focusedId) : undefined;
+  restoreFocus?.focus({preventScroll: true});
   if (model.scrollSelectedTripIntoView && model.selectedTripId) {
     const selectedRow = Array.from(container.querySelectorAll<HTMLElement>("tr[data-trip-id]")).find(
       (row) => row.dataset.tripId === model.selectedTripId

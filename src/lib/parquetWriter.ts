@@ -3,7 +3,7 @@ import * as parquet from "parquet-wasm/esm";
 import {buildTripSegments, segmentDistanceM, type GpxTripInput} from "./gpxWriter";
 import type {LonLat} from "./types";
 
-export interface PathBatch { id: string; trips: GpxTripInput[] }
+export interface PathBatch { id: string; trips: GpxTripInput[]; metadata?: {name: string; createdAt: string; report: import("./types").GenerationReport} }
 
 /** WKB keeps the original float64 coordinates; no decimal rounding or simplification. */
 export function encodePathWkb(coords: LonLat[]): {bytes: Uint8Array; type: string} {
@@ -82,7 +82,7 @@ export function writePathParquet(batches: PathBatch[]): Uint8Array {
       ["geo", JSON.stringify({version: "1.1.0", primary_column: "geometry", columns: {
         geometry: {encoding: "WKB", geometry_types: [...geometryTypes].sort(), edges: "planar"}
       }})],
-      ["odc", JSON.stringify({schemaVersion: 1, legIndexBase: 0, coordinates: "longitude,latitude[,elevation_m]",
+      ["odc", JSON.stringify({schemaVersion: 1, legIndexBase: 0, batches: batches.map(({id, metadata}) => ({id, ...metadata})), coordinates: "longitude,latitude[,elevation_m]",
         source: "Synthetic paths; no per-point timestamps or observation noise.",
         transitAttribution: "Île-de-France Mobilités", transitLicense: "https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm",
         geometryAttribution: "© OpenStreetMap contributors", geometryLicense: "https://opendatacommons.org/licenses/odbl/1-0/"})]

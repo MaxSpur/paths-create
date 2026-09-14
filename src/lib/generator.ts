@@ -1,3 +1,4 @@
+import type { GpxTripInput } from "./gpxWriter";
 import { resolvePairMode } from "./tripModes";
 import { computeBbox } from "./geo";
 import type { GenerationRouteCache } from "./generationRouteCache";
@@ -565,7 +566,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
 
   emitProgress({
     phase: "assemble",
-    message: "Composing trip GPX files",
+    message: "Assembling trip paths",
     current: 0,
     total: pairings.pairs.length
   });
@@ -592,28 +593,29 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       }
 
       const driving = alternatives[Math.floor(routeRandom() * alternatives.length)] ?? alternatives[0];
-      const gpx = buildTripGpx({
+      const exportInput: GpxTripInput = {
         id: tripId,
         name: tripName,
         pairKey: pair.pairKey,
         routeMode,
         places: input.automaticTransit,
-        originStation: input.originStation,
-        destinationStation: input.destinationStation,
-        originPoint: pair.origin,
-        destinationPoint: pair.destination,
+        originStation: snapshotPlace(input.originStation),
+        destinationStation: snapshotPlace(input.destinationStation),
+        originPoint: structuredClone(pair.origin),
+        destinationPoint: structuredClone(pair.destination),
         walkIn: [],
         metro: [],
         walkOut: [],
         driving: cycling ? undefined : driving,
         cycling: cycling ? driving : undefined
-      });
+      };
 
       trips.push({
         id: tripId,
         pairKey: pair.pairKey,
         fileName: `${sanitizeFileName(input.originStation.name)}-${sanitizeFileName(input.destinationStation.name)}-${String(tripNumber).padStart(3, "0")}.gpx`,
-        gpx,
+        exportInput,
+        get gpx() { return buildTripGpx(exportInput); },
         routeMode,
         originPoint: pair.origin,
         destinationPoint: pair.destination,
@@ -626,7 +628,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
 
       emitProgress({
         phase: "assemble",
-        message: "Composing trip GPX files",
+        message: "Assembling trip paths",
         current: index + 1,
         total: pairings.pairs.length
       });
@@ -669,28 +671,29 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       }
     }
 
-    const gpx = buildTripGpx({
+    const exportInput: GpxTripInput = {
       id: tripId,
       name: tripName,
       pairKey: pair.pairKey,
       routeMode: "metro",
       places: input.automaticTransit,
-      originStation: input.originStation,
-      destinationStation: input.destinationStation,
-      originPoint: pair.origin,
-      destinationPoint: pair.destination,
+      originStation: snapshotPlace(input.originStation),
+      destinationStation: snapshotPlace(input.destinationStation),
+      originPoint: structuredClone(pair.origin),
+      destinationPoint: structuredClone(pair.destination),
       walkIn,
       metro: metroCoords,
       walkOut,
       transitJourney: tripTransitJourney,
       accessMode: automaticJourney?.accessMode
-    });
+    };
 
     trips.push({
       id: tripId,
       pairKey: pair.pairKey,
       fileName: `${sanitizeFileName(input.originStation.name)}-${sanitizeFileName(input.destinationStation.name)}-${String(tripNumber).padStart(3, "0")}.gpx`,
-      gpx,
+      exportInput,
+      get gpx() { return buildTripGpx(exportInput); },
       routeMode: "metro",
       originPoint: pair.origin,
       destinationPoint: pair.destination,
@@ -704,7 +707,7 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
 
     emitProgress({
       phase: "assemble",
-      message: "Composing trip GPX files",
+      message: "Assembling trip paths",
       current: index + 1,
       total: pairings.pairs.length
     });
@@ -739,4 +742,9 @@ export async function generateTrips(input: GenerateTripsInput): Promise<Generati
       }
     }
   };
+}
+
+function snapshotPlace(place: GpxTripInput["originStation"]): GpxTripInput["originStation"] {
+  const {id, name, kind, lat, lon, radiusM} = place;
+  return {id, name, kind, lat, lon, radiusM};
 }

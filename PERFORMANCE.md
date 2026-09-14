@@ -7,9 +7,9 @@ Run `npm run benchmark` for offline rail-graph and panel-DOM fixtures. Establish
 - `scripts/benchmarks/railGraph.bench.ts`: station snapping and shortest paths on 40k nodes.
 - `scripts/benchmarks/panel.bench.ts`: full render versus progress patch.
 - `npm run check`: tests, build and bundle budget.
-- `scripts/check-bundle-size.mjs`: sums gzip bytes of JS/CSS directly referenced by `dist/index.html`, capped at 80,000 bytes. It does not recursively traverse imports; revisit coverage if chunk loading changes.
+- `scripts/check-bundle-size.mjs`: sums gzip bytes of JS/CSS directly referenced by `dist/index.html`, capped at 84,000 bytes. It does not recursively traverse imports; revisit coverage if chunk loading changes.
 
-## Batch export experiment
+## Batch export measurements
 
 `npm run benchmark:parquet` compares current ZIP, DEFLATE ZIP and GeoParquet on identical structured fixtures, with independent exact geometry readback. See [PARQUET_EXPORT.md](PARQUET_EXPORT.md) for the method, schema, memory limits and 1,000/10,000-trip measurements.
 
@@ -19,7 +19,7 @@ Run `npm run benchmark` for offline rail-graph and panel-DOM fixtures. Establish
 - Invalidate station, active-point and preview layers independently. Map-view persistence alone must not rebuild them.
 - Metro trips share coordinate arrays: deduplicate base preview segments by identity, then add one selected-trip overlay.
 - Rail graphs use spatial lookup for snapping, lazy shortest-path state and linear path reconstruction.
-- Load JSZip on download and GPX serialization on generation, outside the initial payload.
+- Load export orchestration on download; Parquet/Arrow/WASM and GPX encoding run in disposable workers. Keep structured inputs with shared geometry instead of eager GPX strings. The batch-browser integration raises the initial budget from 80,000 to 84,000 bytes for its controls, paging and focus handling; the multi-megabyte WASM binary remains deferred.
 - Lazy-load the transit router and 36.07 MB regional JSON (5.76 MB gzip when hosting compresses it) on first transit generation. The startup gate excludes this deferred dataset; `idfmTransit.test.ts` checks its structure and reference journeys. Rebuild statistics and source hash live in its manifest.
 - `generationRouteCache.ts` bounds page-session reuse to 16 metro setups and 512 street access legs. Keys include exact ordered coordinates and applicable endpoint/profile/query parameters. Reset/reload clears it. Cache valid geometry only; successful rail geometry survives an elevation failure so elevation can be retried later.
 - Legacy station-routing calls also retain 16 resolved transit itineraries keyed by snapshot version/station coordinates. Automatic place routing reuses graph preprocessing and the 512 street-access cache with distinct walking/cycling profile keys, memoizes successful/failed requests within each batch, and bounds station refinement to 12 searches per pair. It does not query a Cartesian station-pair matrix. Exact rail geometry is interned per immutable network by line and coordinates (128 arrays / 50,000 points) to retain shared preview layers. The immutable network's routing graph is reused; per-trip access connectors retain shared rail arrays.
@@ -55,3 +55,9 @@ A live 20-point-per-station fixture first exposed a primary Overpass 504, raw HT
 ## Bus snapshot reference — 2026-09-07
 
 Offline Node sample on the bus-inclusive snapshot: 20 distinct regional bus-stop pairs, max three changes, 20 connected; 2.594 s total, 113 ms median / 300 ms p95, including first graph preparation. Sampled end heap was about 290 MiB, not peak memory. Twenty shorter same-line pairs took 0.244 s total (1.09 ms median). These measure graph search only: no actual street routes, automatic access refinement, browser layers or network latency. They are not end-to-end throughput predictions. Local ORS installation and measured independent-pair benchmark results are in [OFFLINE_ROUTING.md](OFFLINE_ROUTING.md).
+
+The production browser displays at most 10 batch headings and 50 trip rows, plus one detail inspector. Map previews show the open page and selected trip; this trades an all-routes overview for bounded Leaflet work. Export part limits are in PARQUET_EXPORT.md; they do not bound final archive memory.
+
+## Snapshot integrity test — 2026-09-10
+
+The full bus-inclusive snapshot check approached Vitest's 5 s default timeout on CI. On the same local fixture, replacing repeated Vitest matchers inside the dataset loops with Node strict assertions preserves exhaustive validation and indexed failure messages while avoiding matcher-allocation overhead. A single matched local before/after run measured 4.383 s versus 104 ms for that test (not a repeated statistical benchmark). The dataset-wide test alone has a 15 s timeout; normal tests retain their default. This is a correctness gate, not an application-speed benchmark.

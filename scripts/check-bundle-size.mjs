@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { gzipSync } from "node:zlib";
 
-const INITIAL_GZIP_BUDGET_BYTES = 80_000;
+const INITIAL_GZIP_BUDGET_BYTES = 84_000;
 const distDirectory = resolve("dist");
 const html = await readFile(resolve(distDirectory, "index.html"), "utf8");
 const initialAssetPaths = Array.from(

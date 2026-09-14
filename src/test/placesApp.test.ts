@@ -11,8 +11,12 @@ const mocks = vi.hoisted(() => ({
   model: undefined as MapRenderModel | undefined,
   generate: vi.fn(),
   loadNetwork: vi.fn(),
-  reverse: vi.fn()
+  reverse: vi.fn(),
+  exportBatches: vi.fn(),
+  saveExport: vi.fn()
 }));
+
+vi.mock("../lib/batchExport", () => ({exportBatches: mocks.exportBatches, saveExport: mocks.saveExport}));
 
 vi.mock("../ui/map", () => ({
   MapView: class {
@@ -244,4 +248,66 @@ describe("places app lifecycle", () => {
     expect(vi.mocked(generateTrips).mock.calls[0][0]).toMatchObject({routingProvider:"local",orsApiKey:"",automaticTransit:true});
   });
 
+});
+
+
+describe("batch browser lifecycle", () => {
+  function generated(prefix: string, count: number): GenerationResult {
+    const trips = Array.from({length: count}, (_, index) => ({
+      id: `${prefix}-${index}`, pairKey: `${prefix}-pair-${index}`, fileName: `${prefix}-${index}.gpx`, gpx: "",
+      routeMode: "driving" as const, originPoint: {id: "o", lat: 48.9, lon: 2.4}, destinationPoint: {id: "d", lat: 48.84, lon: 2.58},
+      walkInCoords: [], walkOutCoords: [], metroCoords: [], drivingCoords: [[2.4, 48.9], [2.58, 48.84]] as [number, number][]
+    }));
+    return {trips, report: {requestedTrips: count, generatedTrips: count, failedTrips: 0, failures: [], pairingStats: {uniquePairsUsed: count, maxPairReuse: 1}, reuseStats: {metroPath: false, walkingLegs: 0, walkingLegRequests: 0}, serviceStats: {overpassFallback: false}}};
+  }
+  it("appends batches, bounds rows/previews, reveals map-selected trips across pages and frees deleted pairs", async () => {
+    const state = savedStations(); state.routingProvider = "local"; state.ui.selectedPointId = "origin-1";
+    mocks.generate.mockResolvedValueOnce(generated("first", 125)).mockResolvedValueOnce(generated("second", 2));
+    start(state);
+    await click("#generate");
+    expect(document.querySelectorAll("tr[data-trip-id]")).toHaveLength(50);
+    expect(mocks.model!.previewTrips).toHaveLength(50);
+    await click('[data-trip-page="1"]');
+    expect(document.querySelector("tr[data-trip-id]")?.getAttribute("data-trip-id")).toBe("first-50");
+    await click("#generate");
+    expect(document.querySelectorAll("[data-batch-toggle]")).toHaveLength(2);
+    expect(document.querySelectorAll("tr[data-trip-id]")).toHaveLength(2);
+    HTMLElement.prototype.scrollIntoView = vi.fn();
+    mocks.callbacks!.onTripClick("first-124"); await flush();
+    expect(document.querySelector('tr[data-trip-id="first-124"]')?.classList.contains("is-selected")).toBe(true);
+    expect(document.querySelectorAll("tr[data-trip-id]")).toHaveLength(25);
+    expect(document.querySelectorAll(".selected-trip-details")).toHaveLength(1);
+    const pointCount = loadState().stations.reduce((n, station) => n + station.walkPoints.length, 0);
+    document.querySelector('tr[data-trip-id="first-124"]')!.dispatchEvent(new KeyboardEvent("keydown", {key: "Delete", bubbles: true}));
+    await flush();
+    expect(loadState().stations.reduce((n, station) => n + station.walkPoints.length, 0)).toBe(pointCount);
+    expect(mocks.model!.previewTrips.some(trip => trip.id === "first-124")).toBe(true);
+    await click('tr[data-trip-id="first-124"] [data-trip-delete]');
+    expect(document.querySelector(".selected-trip-details")).toBeNull();
+    mocks.generate.mockResolvedValueOnce(generated("third", 0));
+    await click("#generate");
+    expect(mocks.generate.mock.calls.at(-1)![0].excludedPairKeys.has("first-pair-124")).toBe(false);
+    expect(document.querySelectorAll("[data-batch-toggle]")).toHaveLength(3);
+    await click("#deleteAllTrips");
+    expect(mocks.model!.previewTrips).toHaveLength(0);
+    expect(document.querySelectorAll("[data-batch-toggle]")).toHaveLength(0);
+  });
+  it("exports the chosen scope and cancels safely without a download", async () => {
+    const state = savedStations(); state.routingProvider = "local"; state.ui.selectedPointId = "origin-1";
+    mocks.generate.mockResolvedValueOnce(generated("first", 2)).mockResolvedValueOnce(generated("second", 3));
+    start(state); await click("#generate"); await click("#generate");
+    mocks.exportBatches.mockResolvedValueOnce({bytes: new Uint8Array([1,2]), name: "batch.parquet"});
+    await click("#download"); await vi.dynamicImportSettled(); await flush();
+    expect(mocks.exportBatches.mock.calls[0][0]).toHaveLength(1);
+    expect(mocks.exportBatches.mock.calls[0][0][0].trips).toHaveLength(3);
+    expect(mocks.saveExport).toHaveBeenCalledOnce();
+    await change("#exportScope", "all"); await change("#exportFormat", "gpx");
+    mocks.exportBatches.mockImplementationOnce((_batches, _format, signal: AbortSignal) => new Promise((_resolve, reject) => signal.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError")))));
+    await click("#download"); await vi.dynamicImportSettled(); await flush();
+    expect(mocks.exportBatches.mock.calls[1][0]).toHaveLength(2);
+    expect(mocks.exportBatches.mock.calls[1][1]).toBe("gpx");
+    await click("#cancelExport");
+    expect(document.querySelector(".export-status")?.textContent).toBe("Export cancelled.");
+    expect(mocks.saveExport).toHaveBeenCalledOnce();
+  });
 });

@@ -1,6 +1,6 @@
 # Origin-Destination Creator
 
-Create synthetic origin-to-destination GPX trips from a browser-based map. Create reusable places and areas anywhere, combine walking with public transit, or generate direct driving/cycling routes.
+Create synthetic origin-to-destination paths from a browser-based map. Create reusable places and areas anywhere, combine walking with public transit, or generate direct driving/cycling routes.
 
 **[Open the live app](https://www.maximspur.com/paths-create/)**
 
@@ -14,8 +14,8 @@ The interface and synthetic transit router run in the browser. Route generation 
 - Click each point’s mode button to cycle through T (transit, including bus), D (driving), C (cycling), and C+T (cycling + transit).
 - Follow metro, RER, Transilien, tram and bus lines with walking interchanges in Île-de-France.
 - Generate seeded, non-repeating batches of origin/destination pairs.
-- Review and highlight generated routes directly on the map.
-- Export one enriched GPX file per trip in a single ZIP archive.
+- Browse generation batches with compact, color-coded trip rows and one selected-trip detail view.
+- Export GeoParquet by default, or enriched GPX ZIP, for the open batch or all batches.
 - Keep place data and settings in the current browser profile.
 
 ## Create A Trip Set
@@ -26,9 +26,9 @@ The interface and synthetic transit router run in the browser. Route generation 
 4. Choose **From** and **To** independently of the place being edited. Use ⇄ to swap them.
 5. Set modes on the points, then choose trip count and optional seed. Transit offers a maximum access walk and zero to three changes; C+T also offers a cycling access limit. These limits are separate from the sampling radius.
 6. Select **Generate**. The router chooses boarding/alighting stops for each actual point pair, including walking access and interchanges.
-7. Inspect **Generated Trips** and select **Download GPX ZIP**. When endpoints differ, D takes precedence, followed by C, C+T, then T. C+T always cycles at the origin and walks at the destination.
+7. Open a batch in **Generated Trips**, select a trip for details, then choose an export format/scope and select **Export**. When endpoints differ, D takes precedence, followed by C, C+T, then T. C+T always cycles at the origin and walks at the destination.
 
-Later generation runs append unused point pairs instead of replacing successful trips. The completion report shows failures and any route work reused from the current session.
+Each completed generation run adds a numbered batch of unused point pairs instead of replacing successful trips. The completion report shows failures and any route work reused from the current session.
 
 ### Map Editing
 
@@ -38,6 +38,22 @@ Later generation runs append unused point pairs instead of replacing successful 
 - Shrinking a sampling radius keeps existing points. Overlapping areas retain independent pools.
 - `Delete` or `Backspace` removes a selected area point. A single-point place is removed with **Delete place**.
 - Click a trajectory to select its trip and reveal its list row without moving the map. Click a list row to focus its route, or again to deselect. Shared stretches select the first matching trip unless the selected trip is on top.
+
+## Offline processing and online services
+
+When the app is served locally and **Local ORS** is selected, street routing uses the local server; transit routing uses the bundled IDFM network; generation and GPX/Parquet export run locally. Disable **Look up point addresses** to avoid reverse-geocoding requests.
+
+This is not a completely offline interface: the basemap fetches OpenStreetMap tiles, location search uses Nominatim, and **Find stations near map center** uses Overpass. These services remain online even with Local ORS selected. Hosted ORS also uses its public API when selected. A fully offline interface would need a local/disabled basemap and disabled or locally replaced search services; there is currently no master offline switch.
+
+## Browse and export batches
+
+Open one batch at a time. Trip pages contain up to 50 compact rows; use the arrows or page-number field to navigate. Mode badges and transit-line colors identify the itinerary; selecting a row shows its full details and focuses its route. Keyboard users can focus a row and press Enter or Space. Clicking a route reveals and highlights its row, including switching pages when necessary.
+
+The map previews the open page plus the selected trip, so opening a large batch does not draw every route. **Export** includes all trips in the chosen scope, regardless of pagination. Choose **Open batch** or **All batches**, and **GeoParquet** or **GPX ZIP**. You can cancel an export and retry.
+
+GeoParquet stores exact path coordinates and transport legs with batch/trip IDs and metadata. Exports are divided into parts of at most 1,000 trips. One Parquet part downloads directly; multiple parts are packaged in a ZIP with a manifest. GPX parts are compressed ZIPs; multi-part GPX downloads contain those ZIPs and a manifest. Large exports still need memory for the final download archive.
+
+Delete individual trips, whole batches, or all trips. Generated batches are kept only for the current page session: **export before reloading or closing the page**. Saved places/settings remain in browser storage. Details of the Parquet schema and measured comparisons are in [PARQUET_EXPORT.md](PARQUET_EXPORT.md).
 
 ## GPX Output
 
@@ -88,10 +104,6 @@ npm run ors:status
 ```
 
 `install` downloads and verifies the pinned server and IDF map (~425 MB); the measured installation with graphs uses ~1.18 GiB. `start` runs ORS in the background; wait for status `ready`, then choose **Service settings → Routing service → Local ORS**. No API key is needed. The first run builds graphs; later starts load them. This setup returns 2D street geometry. Map tiles and location search still require internet. Stop it with `npm run ors:stop`. Complete setup, storage/memory requirements and troubleshooting are in [OFFLINE_ROUTING.md](OFFLINE_ROUTING.md).
-
-## Experimental batch export
-
-A GeoParquet prototype and reproducible 1,000/10,000-trip comparison are available for evaluating larger datasets. It is separate from the main app export controls. See [PARQUET_EXPORT.md](PARQUET_EXPORT.md) for the browser experiment, downloadable fixture and benchmark commands.
 
 ## Project Documentation
 

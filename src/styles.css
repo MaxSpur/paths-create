@@ -636,3 +636,33 @@ body,
 
 .point-trip-mode-button.cycling { color: #155e75; background: #cffafe; border-color: #0891b2; }
 .point-trip-mode-button.cycling_transit { color: #115e59; background: #ccfbf1; border-color: #0d9488; }
+
+/* Batch hierarchy: bounded pages, compact rows, a single detail inspector. */
+.export-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.export-controls label { margin: 4px 0; }
+.export-status { font-size: 12px; margin: 6px 0; overflow-wrap: anywhere; }
+.trip-batch { border-top: 1px solid #bac6ce; }
+.batch-heading { display: flex; align-items: center; gap: 4px; }
+.batch-heading > button { border: 0; border-radius: 0; background: transparent; }
+.batch-toggle { flex: 1; min-width: 0; text-align: left; padding: 8px 4px; }
+.batch-toggle > span { display: block; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.batch-toggle small { display: block; margin-left: 14px; color: #52616c; font-size: 11px; }
+.batch-pager { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 11px; padding: 4px; }
+.batch-pager button { padding: 2px 10px; }
+.generated-trip-list { max-height: 340px; overflow: auto; }
+.trips-table .compact-trip td { padding: 3px 4px; font-size: 11px; }
+.compact-trip .trip-label { max-width: 260px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; }
+.compact-trip .trip-mode { min-width: 22px; padding: 1px 4px; font-size: 10px; }
+.compact-trip button { padding: 1px 5px; border: 0; background: transparent; }
+.compact-trip:focus-visible { outline: 2px solid #176e9b; outline-offset: -2px; }
+.trip-number { color: #52616c; width: 20px; }
+.trip-chips { display: flex; gap: 3px; align-items: center; font-size: 10px; overflow: hidden; }
+.line-chip { border-left: 4px solid #697e8c; background: #f0f3f5; color: #1b2932; padding: 0 3px; white-space: nowrap; }
+.trip-mode.cycling { color: #155e75; background: #cffafe; border-color: #0891b2; }
+.selected-trip-details { border-top: 2px solid #247b9e; padding-top: 8px; margin-top: 8px; }
+.selected-trip-details h3 { margin: 0 0 4px; font-size: 12px; text-transform: uppercase; }
+.selected-trip-details .trips-table td { display: block; padding: 3px 0; }
+.selected-trip-details .trip-label, .selected-trip-details .trip-file { white-space: normal; overflow-wrap: anywhere; }
+
+.batch-pager .page-jump { display: flex; align-items: center; gap: 3px; margin: 0; font-size: 11px; }
+.page-jump input { width: 48px; padding: 2px; font-size: 11px; }

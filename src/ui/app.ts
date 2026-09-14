@@ -1,5 +1,5 @@
 import { hasTransitPointPairs, nextPointMode, MODE_LABELS } from "../lib/tripModes";
-import { downloadZip } from "../lib/exportZip";
+import {pageTrips, revealTrip, pageNumber, BATCH_PAGE_SIZE} from "../lib/tripBatches";
 import { createGenerationRouteCache } from "../lib/generationRouteCache";
 import { reverseGeocode, searchLocations } from "../lib/geocode";
 import { generateTrips } from "../lib/generator";
@@ -12,7 +12,7 @@ import { clampStationRadiusM, DEFAULT_STATION_RADIUS_M } from "../lib/stationRad
 import { createStateStore } from "../lib/stateStore";
 import { isInTransitRegion, loadTransitNetwork } from "../lib/transitNetwork";
 import type { GenerationProgressUpdate } from "../lib/generator";
-import type { GeneratedTrip, GenerationReport, LatLon, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
+import type { GeneratedBatch, GeneratedTrip, GenerationReport, LatLon, StationCandidate, StationRecord, WalkPoint } from "../lib/types";
 import { resolveMapClickAction, type EditMode } from "./interaction";
 import { MapView } from "./map";
 import { renderPanel, updateGenerationProgress, updatePointClocks, type PointClockView } from "./panel";
@@ -55,6 +55,18 @@ export function createApp(root: HTMLElement): void {
   let statusText = "";
   let nearbyCandidates: StationCandidate[] = [];
   let generatedTrips: GeneratedTrip[] = [];
+  let batches: GeneratedBatch[] = [];
+  let expandedBatchId: string | null = null;
+  let nextBatchNumber = 1;
+  let batchPage = 0;
+  let tripPage = 0;
+  let exportFormat: "parquet" | "gpx" = "parquet";
+  let exportScope: "batch" | "all" = "batch";
+  let exportController: AbortController | null = null;
+  let exportStatus = "";
+  let previewKey = "";
+  let previewBatch: GeneratedBatch | undefined;
+  let previewTrips: GeneratedTrip[] = [];
   let selectedTripId: string | null = null;
   let lastGenerationReport: GenerationReport | null = null;
   let nextGeneratedTripNumber = 1;
@@ -766,6 +778,9 @@ export function createApp(root: HTMLElement): void {
       const knownPairKeys = generatedPairKeys();
       const newTrips = result.trips.filter((trip) => !knownPairKeys.has(trip.pairKey));
       generatedTrips = [...generatedTrips, ...newTrips];
+      const batch: GeneratedBatch = {id: newId("batch"), name: `Batch ${nextBatchNumber++} · ${origin.name} → ${destination.name}`, createdAt: new Date().toISOString(), trips: newTrips, report: result.report};
+      batches = [batch, ...batches];
+      expandedBatchId = batch.id; batchPage = 0; tripPage = 0; selectedTripId = null;
       nextGeneratedTripNumber += newTrips.length;
       lastGenerationReport = result.report;
       generationProgress = {
@@ -793,16 +808,22 @@ export function createApp(root: HTMLElement): void {
   };
 
   const download = async () => {
-    if (generatedTrips.length === 0) {
-      statusText = "No generated GPX files available for download.";
-      render();
-      return;
-    }
-
-    const files = generatedTrips.map((trip) => ({ fileName: trip.fileName, content: trip.gpx }));
-    await downloadZip(files, `generated-trips-${new Date().toISOString().slice(0, 19)}.zip`);
-    statusText = `Downloaded ${files.length} GPX files.`;
-    render();
+    if (exportController) return;
+    const targets = (exportScope === "all" ? batches : batches.filter(batch => batch.id === expandedBatchId)).filter(batch => batch.trips.length);
+    if (!targets.length) {exportStatus = "Open a batch with trips, or choose All batches."; render(); return;}
+    const format = exportFormat;
+    const controller = new AbortController(); exportController = controller;
+    exportStatus = "Preparing export…"; render();
+    try {
+      const {exportBatches, saveExport} = await import("../lib/batchExport");
+      controller.signal.throwIfAborted();
+      const result = await exportBatches(targets, format, controller.signal, text => {exportStatus = text; render();});
+      controller.signal.throwIfAborted();
+      saveExport(result.bytes, result.name);
+      exportStatus = `Exported ${targets.reduce((n, batch) => n + batch.trips.length, 0)} trips (${(result.bytes.length / 1e6).toFixed(2)} MB).`;
+    } catch (error) {
+      exportStatus = controller.signal.aborted ? "Export cancelled." : `Export failed: ${error instanceof Error ? error.message : String(error)}`;
+    } finally {if (exportController === controller) exportController = null; render();}
   };
 
   const selectGeneratedTrip = (tripId: string, fromMap = false) => {
@@ -815,6 +836,10 @@ export function createApp(root: HTMLElement): void {
     }
 
     selectedTripId = !fromMap && selectedTripId === tripId ? null : tripId;
+    if (selectedTripId) {
+      const location = revealTrip(batches, selectedTripId);
+      if (location) {expandedBatchId = location.batchId; batchPage = location.batchPage; tripPage = location.tripPage;}
+    }
     scrollSelectedTripIntoView = fromMap;
     if (selectedTripId && !fromMap) {
       map.focusOnTrip(trip);
@@ -826,6 +851,7 @@ export function createApp(root: HTMLElement): void {
   const deleteGeneratedTrip = (tripId: string) => {
     const beforeCount = generatedTrips.length;
     generatedTrips = generatedTrips.filter((trip) => trip.id !== tripId);
+    batches = batches.map(batch => ({...batch, trips: batch.trips.filter(trip => trip.id !== tripId)}));
     if (selectedTripId === tripId) {
       selectedTripId = null;
     }
@@ -834,7 +860,8 @@ export function createApp(root: HTMLElement): void {
   };
 
   const deleteAllGeneratedTrips = () => {
-    generatedTrips = [];
+    exportController?.abort();
+    generatedTrips = []; batches = []; expandedBatchId = null; batchPage = 0; tripPage = 0; nextBatchNumber = 1;
     selectedTripId = null;
     lastGenerationReport = null;
     generationProgress = null;
@@ -854,7 +881,8 @@ export function createApp(root: HTMLElement): void {
     store.reset();
     mode = "idle";
     nearbyCandidates = [];
-    generatedTrips = [];
+    exportController?.abort();
+    generatedTrips = []; batches = []; expandedBatchId = null; batchPage = 0; tripPage = 0; nextBatchNumber = 1;
     selectedTripId = null;
     lastGenerationReport = null;
     nextGeneratedTripNumber = 1;
@@ -868,6 +896,14 @@ export function createApp(root: HTMLElement): void {
     const activeStation = state.stations.find((item) => item.id === state.ui.activeStationId);
     const pointClocks = buildPointClockView(activeStation?.walkPoints.map((point) => point.id) ?? []);
 
+    const openBatch = batches.find(batch => batch.id === expandedBatchId);
+    const nextPreviewKey = `${expandedBatchId}:${tripPage}:${selectedTripId}`;
+    if (previewBatch !== openBatch || previewKey !== nextPreviewKey) {
+      previewBatch = openBatch; previewKey = nextPreviewKey;
+      previewTrips = pageTrips(openBatch, tripPage);
+      const selected = generatedTrips.find(trip => trip.id === selectedTripId);
+      if (selected && !previewTrips.includes(selected)) previewTrips.push(selected);
+    }
     map.render({
       stations: state.stations,
       activeStationId: state.ui.activeStationId,
@@ -875,7 +911,7 @@ export function createApp(root: HTMLElement): void {
       selectedTripId,
       selectedOriginStationId: state.selectedOriginStationId,
       selectedDestinationStationId: state.selectedDestinationStationId,
-      previewTrips: generatedTrips
+      previewTrips
     });
 
     renderPanel(
@@ -899,14 +935,15 @@ export function createApp(root: HTMLElement): void {
         randomCount: state.randomPointDefaults.count,
         lookupAddresses: state.lookupAddresses,
         nearbyCandidates,
-        generatedTrips,
+        generatedTrips, batches, expandedBatchId, batchPage, tripPage,
+        exporting: Boolean(exportController), exportFormat, exportScope, exportStatus,
         selectedTripId,
         pointClocks,
         scrollSelectedIntoView,
         scrollSelectedTripIntoView,
         generationProgress: generationProgress ?? undefined,
         report: lastGenerationReport ?? undefined,
-        canDownload: generatedTrips.length > 0,
+        canDownload: exportScope === "all" ? generatedTrips.length > 0 : Boolean(openBatch?.trips.length),
         statusText
       },
       {
@@ -1032,6 +1069,20 @@ export function createApp(root: HTMLElement): void {
         onDeleteTrip: deleteGeneratedTrip,
         onDeleteAllTrips: deleteAllGeneratedTrips,
         onDownload: download,
+        onExportFormat: value => {exportFormat = value; render();},
+        onExportScope: value => {exportScope = value; render();},
+        onCancelExport: () => exportController?.abort(),
+        onToggleBatch: id => {expandedBatchId = expandedBatchId === id ? null : id; tripPage = 0; selectedTripId = null; render();},
+        onTripPage: page => {tripPage = Math.max(0, page); render();},
+        onBatchPage: page => {batchPage = pageNumber(page, batches.length, BATCH_PAGE_SIZE); expandedBatchId = null; selectedTripId = null; render();},
+        onDeleteBatch: id => {
+          exportController?.abort();
+          batches = batches.filter(batch => batch.id !== id);
+          generatedTrips = batches.flatMap(batch => batch.trips);
+          if (!generatedTrips.some(trip => trip.id === selectedTripId)) selectedTripId = null;
+          if (expandedBatchId === id) expandedBatchId = null;
+          batchPage = pageNumber(batchPage, batches.length, BATCH_PAGE_SIZE); render();
+        },
         onResetAll: resetAll
       }
     );
@@ -1055,7 +1106,8 @@ export function createApp(root: HTMLElement): void {
     const target = event.target as HTMLElement | null;
     if (
       target &&
-      (target.tagName === "INPUT" ||
+      (target.closest(".batch-browser, .selected-trip-details") ||
+        target.tagName === "INPUT" ||
         target.tagName === "TEXTAREA" ||
         target.tagName === "SELECT" ||
         target.isContentEditable)
