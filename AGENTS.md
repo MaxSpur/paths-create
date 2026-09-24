@@ -1,6 +1,6 @@
 # Project guidance
 
-Browser-only Vite/TypeScript app for synthetic transit (including bus), cycling and driving GPX trips. UI/transit processing stays in the browser; optional native local ORS supplies street routes.
+Vite/TypeScript browser app for synthetic transit (including bus), cycling and driving trips. Optional native local ORS supplies street routes. The optional Node NetMob runner reuses domain modules for bounded, resumable local exports; the existing lazy NetMob UI controls it through an optional loopback companion. Manual/browser pilot state remains independent.
 
 ## Read by task
 
@@ -9,6 +9,9 @@ Read only the relevant document or section; verify changing facts in source and 
 - [ARCHITECTURE.md](ARCHITECTURE.md): module ownership, state, generation, build/deploy.
 - [LESSONS.md](LESSONS.md): regression traps for map, panel, async, or setup changes.
 - [PERFORMANCE.md](PERFORMANCE.md): rendering, routing, caching, bundle work, and smoke fixture.
+- [MOVEMENT_SIMULATION.md](MOVEMENT_SIMULATION.md): candidate movement fitting, selected-route noise, bounds and calibration experiments.
+- [NETMOB.md](NETMOB.md): NetMob input workers, geography, ordered modes, timing, fitting and pilot benchmarks.
+- [NETMOB_RUNS.md](NETMOB_RUNS.md): local runner, visible output, checkpoints, disk limits and full-run gates.
 - [PARQUET_EXPORT.md](PARQUET_EXPORT.md): batch export, schema, partitioning and measured comparisons.
 - [OFFLINE_ROUTING.md](OFFLINE_ROUTING.md): local ORS setup, lifecycle commands, and local-server benchmarks; `.local-ors/` holds ignored runtime/data.
 - [GPX_EXPORT.md](GPX_EXPORT.md): exported XML changes.
@@ -19,6 +22,7 @@ Read only the relevant document or section; verify changing facts in source and 
 ## Commands and verification
 
 - Dependency setup when needed: `npm ci`; runtime pin: `.node-version`.
+- Local job controller: `npm run netmob:serve` → `127.0.0.1:5199`; keep running independently of the browser. See NETMOB_RUNS.
 - Dev: `npm run dev` → `http://127.0.0.1:5198/`.
 - Preview: `npm run preview` → `http://127.0.0.1:4198/`.
 - Full gate: `npm run check` (tests, build, initial-bundle budget).

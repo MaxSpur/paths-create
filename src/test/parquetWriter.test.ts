@@ -7,6 +7,7 @@ import {compressors} from "hyparquet-compressors";
 import {writePathParquet} from "../lib/parquetWriter";
 import type {GpxTripInput} from "../lib/gpxWriter";
 import {transitJourneyFixture} from "./transitJourneyFixture";
+import {DEFAULT_COMPACT_NOISE} from '../lib/compactPathNoise';
 
 const base: GpxTripInput = {
   id: "trip", name: 'École <&> "test"', places: true,
@@ -19,6 +20,15 @@ const buffer = (bytes: Uint8Array) => Uint8Array.from(bytes).buffer;
 beforeAll(async () => {await init({module_or_path: readFileSync("node_modules/parquet-wasm/esm/parquet_wasm_bg.wasm")});});
 
 describe("GeoParquet paths", () => {
+  it('exports explicit compact variation while retaining clean metadata and original inputs',async()=>{
+    const before=structuredClone(base);
+    const file=buffer(writePathParquet([{id:'varied',trips:[base]}],{variation:DEFAULT_COMPACT_NOISE}));
+    const rows=await parquetReadObjects({file,compressors});
+    expect(base).toEqual(before);expect(rows[0].point_count).toBe(2);expect(rows[0].geometry).not.toEqual({type:'LineString',coordinates:base.walkIn});
+    const meta=JSON.parse(String(rows[0].trip_json));expect(meta.originPoint).toEqual(base.originPoint);
+    expect(meta.geometryVariation).toMatchObject({version:'bounded-spatial-offset-1',maxOffsetM:3,knotSpacingM:100});
+    expect(parquetMetadata(file).key_value_metadata!.find(m=>m.key==='odc')!.value).toContain('bounded geometric variation');
+  });
   it("is readable by an independent reader and preserves modes, leg order, metadata and exact coordinates", async () => {
     const trip = {...base, accessMode: "cycling" as const, transitJourney: transitJourneyFixture()};
     const file = buffer(writePathParquet([{id: "batch", trips: [trip]}]));

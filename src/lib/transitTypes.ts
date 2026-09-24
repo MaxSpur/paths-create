@@ -9,6 +9,7 @@ export interface TransitStop extends LatLon {
 }
 
 export interface TransitLine {
+  railClass?: "regional" | "long-distance";
   id: string;
   name: string;
   mode: TransitMode;
@@ -43,6 +44,9 @@ export interface TransitLeg {
   line?: TransitLine;
   coordinates: LonLat[];
   geometrySource: "gtfs" | "station-connector" | "ors";
+  patternIndex?: number;
+  fromPatternIndex?: number;
+  toPatternIndex?: number;
 }
 
 export interface TransitJourney {

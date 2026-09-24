@@ -39,7 +39,7 @@ export interface OrsClientOptions {
 
 const MAX_ELEVATION_VERTICES = 2000;
 
-class OrsHttpError extends Error {
+export class OrsHttpError extends Error {
   constructor(
     readonly status: number,
     message: string
@@ -56,8 +56,13 @@ class OrsGeometryError extends Error {
   }
 }
 
-async function sleep(ms: number): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, ms));
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    const abort = () => {clearTimeout(timer); reject(signal?.reason ?? new DOMException("Cancelled", "AbortError"));};
+    const timer = setTimeout(() => {signal?.removeEventListener("abort", abort); resolve();}, ms);
+    signal?.addEventListener("abort", abort, {once:true});
+  });
 }
 
 function isRetriableStatus(status: number): boolean {
@@ -206,7 +211,7 @@ export class OrsClient {
     this.retryBaseDelayMs = options.retryBaseDelayMs ?? 350;
   }
 
-  private async postJson(url: string, payload: unknown): Promise<unknown> {
+  private async postJson(url: string, payload: unknown, signal?: AbortSignal): Promise<unknown> {
     if (!this.local && !this.apiKey.trim()) {
       throw new Error("Missing ORS API key.");
     }
@@ -214,6 +219,7 @@ export class OrsClient {
     let attempt = 0;
 
     while (true) {
+      signal?.throwIfAborted();
       try {
         const response = await fetch(url, {
           method: "POST",
@@ -221,7 +227,7 @@ export class OrsClient {
             ...(this.local ? {} : { Authorization: this.apiKey }),
             "Content-Type": "application/json"
           },
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload), signal
         });
 
         if (!response.ok) {
@@ -229,7 +235,7 @@ export class OrsClient {
           if (attempt < this.maxRetries && isRetriableStatus(response.status)) {
             const delay = this.retryBaseDelayMs * 2 ** attempt + Math.random() * 200;
             attempt += 1;
-            await sleep(delay);
+            await sleep(delay, signal);
             continue;
           }
           throw new OrsHttpError(response.status, `ORS ${response.status}: ${text || response.statusText}`);
@@ -237,6 +243,7 @@ export class OrsClient {
 
         return await response.json();
       } catch (error) {
+        signal?.throwIfAborted();
         if (error instanceof OrsHttpError) {
           throw error;
         }
@@ -245,9 +252,23 @@ export class OrsClient {
         }
         const delay = this.retryBaseDelayMs * 2 ** attempt + Math.random() * 200;
         attempt += 1;
-        await sleep(delay);
+        await sleep(delay, signal);
       }
     }
+  }
+
+  /** Detailed routes for explicit OD fitting; existing geometry-only callers keep their contract. */
+  async getRouteDetails(profile: "foot-walking" | "cycling-regular" | "driving-car", from: LatLon, to: LatLon, signal?: AbortSignal): Promise<{coordinates: LonLat[]; durationS: number; distanceM: number}> {
+    const payload = await this.postJson(`${this.baseUrl}/${profile}/geojson`, {
+      coordinates: [[from.lon, from.lat], [to.lon, to.lat]], elevation: !this.local
+    }, signal) as {features?: Array<{properties?: {summary?: {duration?: number; distance?: number}}}>};
+    const coordinates = extractCoordinates(payload);
+    const summary = payload.features?.[0]?.properties?.summary;
+    if (!coordinates || coordinates.length < 2 || coordinates.some(c => !c.every(Number.isFinite)) ||
+        !summary || !Number.isFinite(summary.duration) || summary.duration! < 0 || !Number.isFinite(summary.distance) || summary.distance! < 0) {
+      throw new OrsGeometryError("ORS response lacks valid geometry or duration/distance.");
+    }
+    return {coordinates, durationS: summary.duration!, distanceM: summary.distance!};
   }
 
   private async postForCoordinates(url: string, payload: unknown, emptyResponseMessage: string): Promise<LonLat[]> {

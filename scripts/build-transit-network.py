@@ -16,6 +16,7 @@ import math
 from pathlib import Path
 import re
 import zipfile
+import gzip
 
 DATASET_URL = "https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/offre-horaires-tc-gtfs-idfm"
 DOWNLOAD_URL = "https://eu.ftp.opendatasoft.com/stif/GTFS/IDFM-gtfs.zip"
@@ -119,7 +120,7 @@ def build(args):
             name = row["route_short_name"] or row["route_long_name"]
             mode = {"0": "tram", "1": "metro", "3": "bus"}.get(row["route_type"], "rer" if name in "ABCDE" and len(name) == 1 else "train")
             color = row.get("route_color", "")
-            lines.append({"id": row["route_id"], "name": name, "mode": mode, "color": "#" + (color if re.fullmatch(r"[0-9A-Fa-f]{6}", color) else "64748b")})
+            lines.append({"id": row["route_id"], "name": name, "mode": mode, "color": "#" + (color if re.fullmatch(r"[0-9A-Fa-f]{6}", color) else "64748b"), **({"railClass": "regional"} if agencies.get(row["agency_id"], "").upper() == "TER" else {})})
         trips = {row["trip_id"]: (line_indexes[row["route_id"]], row["shape_id"])
                  for row in records(archive, "trips") if row["route_id"] in line_indexes}
         print(f"Selected {len(lines)} lines / {len(trips)} trips; streaming stop_times…", flush=True)
@@ -229,10 +230,11 @@ def build(args):
                         "Transfers are explicit GTFS connections; internal walking geometry is not supplied by transfers.txt.",
                         "Patterns with missing geometry, nonmonotonic stop alignment or excessive stop-to-shape distance are excluded."]
     }
-    network = {"schemaVersion": 1, "version": f"idfm-{args.retrieved}-{digest.hexdigest()[:12]}-v2", "source": source,
+    network = {"schemaVersion": 1, "version": f"idfm-{args.retrieved}-{digest.hexdigest()[:12]}-v2" + ("-ter" if args.include_ter else ""), "source": source,
                "stops": stops, "lines": lines, "patterns": patterns, "transfers": transfers}
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(network, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
+    payload = (json.dumps(network, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    args.output.write_bytes(gzip.compress(payload, mtime=0) if args.output.suffix == ".gz" else payload)
     print(json.dumps({**statistics, "outputBytes": args.output.stat().st_size}, indent=2), flush=True)
 
 

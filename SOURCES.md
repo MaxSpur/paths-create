@@ -15,6 +15,15 @@ References by topic. Service/runtime links were reviewed 2026-08-08 and GitHub A
 - [Local ORS installation](OFFLINE_ROUTING.md) — installed/verified 2026-09-10: pinned native Java server, IDF extract checksums, measured graph size and independent-route benchmarks.
 - [IDFM bike-parking inventory](https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/parking-velos-ile-de-france-mobilites) — station-adjacent parking locations/types, metadata reviewed 2026-09-07. Not downloaded or integrated; cycling + transit currently marks parking unverified.
 
+## NetMob pilot sources
+
+Reviewed 2026-09-14. [Supporting-data notice](public/data/netmob-data.LICENSE.md) owns exact source URLs, pinned GTFS hash, licenses and rebuild commands. [NETMOB.md](NETMOB.md) owns dataset findings and timing assumptions.
+
+- [Ville de Paris — Arrondissements](https://opendata.paris.fr/explore/dataset/arrondissements/): twenty exact arrondissement codes and boundaries, supplementing EMG's missing Paris polygons.
+- [API Découpage administratif](https://geo.api.gouv.fr/decoupage-administratif/communes) / [Contours administratifs](https://www.data.gouv.fr/datasets/contours-administratifs): Guillerval 91294 and Mondreville 77297, retrieved with `geometry=contour`.
+- [IDFM archive](https://transport.data.gouv.fr/datasets/reseau-urbain-et-interurbain-dile-de-france-mobilites): archive inspection did not establish historical coverage for almost all survey departures, and the earliest inspected 2023 feed lacked shapes. The pilot consequently uses a pinned recent feed with explicit modeled-time provenance.
+- [GTFS schedule reference](https://gtfs.org/documentation/schedule/reference/): calendars/exceptions, local service times beyond 24:00, stop sequences and pickup restrictions inform offline preprocessing. Medians/headways are estimates, not a historical timetable router.
+
 ## OpenStreetMap Data And Search
 
 - [Overpass API overview and public instances](https://wiki.openstreetmap.org/wiki/Overpass_API) — query model and public-instance constraints. The configured rail-query backup is `overpass.private.coffee`; recheck its suitability before changing fallback policy.
@@ -38,3 +47,5 @@ Reviewed 2026-09-07:
 - [OpenAI AGENTS.md guidance](https://learn.chatgpt.com/docs/agent-configuration/agents-md) — global/project instruction discovery and precedence.
 
 Project guidance keeps task-specific constraints and routes optional reads. General working preferences remain inherited; API migration parameters do not apply to this browser app.
+
+The optional NetMob controller binds loopback port 5199 and accepts only local development/preview app origins. It uses existing files and local ORS; it does not fetch new datasets, copy imports or route through hosted services. Browser map tiles retain the existing online behavior. See [NETMOB_RUNS.md](NETMOB_RUNS.md) for process, output and preview bounds.

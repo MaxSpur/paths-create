@@ -2,6 +2,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   base: "./",
+  // Discover lazy worker codecs before a session starts; late optimization reloads lose pilot results.
+  optimizeDeps: { include: ["jszip", "apache-arrow", "parquet-wasm/esm", "hyparquet", "hyparquet-compressors", "hyparquet/src/convert.js"] },
   server: {
     host: "127.0.0.1",
     port: 5198,

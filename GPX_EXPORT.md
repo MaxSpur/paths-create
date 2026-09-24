@@ -14,7 +14,7 @@ Places & Areas exports use trip `schemaVersion="3"` for both transit and driving
 
 Transit track structure follows schema 2: access walk, ordered transit/transfer legs, then exit walk. Transit track types are `metro`, `rer`, `train`, `tram` or `bus`; transfer tracks use `walking`. Segment roles distinguish `transit` and `transfer`. Each leg has stop references; transit legs also carry line ID/name. `geometrySource` distinguishes `gtfs`, `ors` and approximate `station-connector` geometry. These fields are repeated consistently on `odc:segment` and `odc:segmentRef`.
 
-Schema 2 trip metadata includes `networkVersion`, `transferCount` and data attribution/license URLs. The legacy trip `routeMode="metro"` and namespace remain compatible with saved point modes; readers must use track modes for actual transport type. No departure times or durations are synthesized. The standard metadata time is file creation time.
+Schema 2 trip metadata includes `networkVersion`, `transferCount` and data attribution/license URLs. The legacy trip `routeMode="metro"` and namespace remain compatible with saved point modes; readers must use track modes for actual transport type. Manual does not synthesize departure times or durations. The standard metadata time is file creation time.
 
 Legacy callers without the places flag retain schemas 1/2. Consumers must inspect `schemaVersion` and explicitly support schema 3 rather than treating a collection center as a station or assuming three tracks.
 
@@ -33,6 +33,10 @@ Driving trips contain one GPX track:
 1. `<trk><type>driving</type>` with `odc:segment role="driving"`.
 
 Each GPX track contains one `<trkseg>`. The full segment metadata is attached to the track in `<extensions><odc:segment ...>`. The `<trkseg>` also has `<extensions><odc:segmentRef ... />` so segment-level parsers can identify the transport leg without reading the parent track extension.
+
+## NetMob schema 5
+
+NetMob exports use `schemaVersion="5"`, retaining one track per ordered leg. Consumers must use track order/modes rather than assuming access/transit/egress. `<odc:netmob version="1">` contains escaped JSON with source identity, original non-geometric fields, sampled endpoints, boundary sources, realization settings, fit metrics, departure wall time and network/timing provenance. `<odc:modeled>` within each track's segment contains JSON duration/distance, boarding wait, elapsed offsets, source mode and approximation labels. Running duration and wait are separate; elapsed offsets and modeled trip totals include both. The raw damaged arrival field never becomes a timestamp. `trkpt` elements still have no movement times. NetMob transit tracks retain the IDFM/OSM attribution notice.
 
 ## Trip Metadata
 
@@ -117,3 +121,7 @@ Endpoints: all start at [2.402, 48.895]; walking ends at [2.414, 48.899], cyclin
 Keep compact route geometry and synthetic observations separate. A future observation stage can traverse each leg by accumulated distance and modeled speed, sampling at a configurable time interval in O(vertices + samples). This needs synthetic elapsed time, not real service schedules. Faster travel produces larger gaps at a fixed interval, but sampling may densify already sparse geometry. Preserve underlying bends and leg boundaries; a compact route export should instead use a spatial error tolerance. Stops, acceleration and road/rail context need explicit assumptions before claiming realistic speed profiles.
 
 Future GNSS simulation should keep clean truth alongside observations and record a seed, interval and model parameters. Consider spatially/temporally correlated drift, multipath, independent noise, outliers and dropouts, especially underground. The user's reference slide gives Gaussian/exponential correlation components (sigma 0.5 m / range 100 m and sigma 5 m / range 20 m) plus white noise (sigma 1 m / range 0 m); these are example model parameters, not validated defaults for every mode/environment. Apply observation noise after sampling and keep it distinct from geometric simplification and decimal rounding. Scope remains exploratory; no export behavior changed.
+
+NetMob preserves all normalized non-geometric source columns in `odc:netmob.raw`; source mode spelling and null fields survive readback. Source polygons/centroids are excluded during import, while generated endpoints and boundary provenance remain in the NetMob extension. Map visibility does not filter export scope.
+
+The optional [movement/noise pilot](MOVEMENT_SIMULATION.md) now supports selected NetMob route previews and a separate observation GeoParquet export. Ordinary GPX remains an untimed clean-path export; the future-observation notes above do not describe that separate pilot schema.

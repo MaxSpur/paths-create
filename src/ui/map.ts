@@ -44,6 +44,7 @@ function pointMarkerColors(point: { tripMode?: import("../lib/types").PointTripM
 }
 
 function tripCoordinates(trip: GeneratedTrip): LonLat[] {
+  if (trip.exportInput?.orderedLegs) return trip.exportInput.orderedLegs.flatMap(leg => leg.coordinates);
   return trip.routeMode === "cycling" ? trip.cyclingCoords ?? [] : trip.routeMode === "driving"
     ? trip.drivingCoords
     : [...trip.walkInCoords, ...(trip.transitJourney ? trip.transitJourney.legs.flatMap((leg) => leg.coordinates) : trip.metroCoords), ...trip.walkOutCoords];
@@ -80,6 +81,7 @@ function pointRenderKey(model: MapRenderModel, activeStation?: StationRecord): s
 }
 
 export class MapView {
+  private netmobOverlay?: import("./netmobMap").NetmobOverlay;
   private readonly map: L.Map;
 
   private readonly stationLayer: L.LayerGroup;
@@ -114,6 +116,7 @@ export class MapView {
     this.stationLayer = L.layerGroup().addTo(this.map);
     this.pointLayer = L.layerGroup().addTo(this.map);
 
+
     this.map.on("click", (event: L.LeafletMouseEvent) => {
       this.callbacks.onMapClick({ lat: event.latlng.lat, lon: event.latlng.lng });
     });
@@ -129,6 +132,11 @@ export class MapView {
   getCenter(): LatLon {
     const center = this.map.getCenter();
     return { lat: center.lat, lon: center.lng };
+  }
+
+  installNetmobOverlay(factory:(map:L.Map)=>import("./netmobMap").NetmobOverlay):void {this.netmobOverlay??=factory(this.map);}
+  showNetmobPairs(pairs: import("../lib/netmobTypes").NetmobPair[], focus=false, boundaries:import("../lib/netmobTypes").NetmobArea[]=[], options:import("./netmobMap").NetmobMapOptions={}):void {
+    this.netmobOverlay?.show(pairs,focus,boundaries,options);
   }
 
   private getSearchBounds(): LocationSearchBounds {

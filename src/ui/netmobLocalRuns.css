@@ -1,0 +1,8 @@
+/* Local supervisor: stable controls and bounded saved-row review. */
+.netmob-local-runs { border-block: 1px solid var(--border, #d7dde2); padding: 10px 0; margin: 12px 0; }
+.netmob-local-runs > summary { font-weight: 700; cursor: pointer; }
+.netmob-local-runs progress { width: 100%; height: 8px; display: block; }
+.netmob-local-runs .local-output { overflow-wrap: anywhere; font-size: 11px; }
+.netmob-local-runs .local-row { min-height: 1.4em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.netmob-local-runs pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.netmob-local-runs [data-error] { color: #b45309; overflow-wrap: anywhere; }

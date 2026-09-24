@@ -14,6 +14,10 @@ export interface TransitRoutingOptions {
   blockedTransferStops?: ReadonlySet<string>;
   /** Restrict the initial ride only; later transfers may use any service mode. */
   initialBoardingMode?: TransitMode;
+  /** One mode-class entry per recorded boarding, including repeated modes. */
+  boardingSequence?: ReadonlyArray<ReadonlyArray<TransitMode>>;
+  allowedLineIds?: ReadonlySet<string>;
+  boardingLineIds?: ReadonlyArray<ReadonlySet<string> | undefined>;
 }
 
 interface Occurrence { pattern: number; index: number; stop: number; distance: number }
@@ -177,10 +181,12 @@ function reconstruct(network: TransitNetwork, graph: Graph, end: Label): Transit
     const to = atCoordinate(network.stops[next.stop], coordinates[coordinates.length - 1]);
     if (last?.kind === "transit" && previousPattern === occurrence.pattern && !step.boarding) {
       last.to = to;
+      last.toPatternIndex = next.index;
       last.coordinates.push(...coordinates.slice(1));
     } else {
       legs.push({ kind: "transit", mode: network.lines[pattern.line].mode, from, to,
-        line: network.lines[pattern.line], coordinates, geometrySource: "gtfs" });
+        line: network.lines[pattern.line], coordinates, geometrySource: "gtfs",
+        patternIndex: occurrence.pattern, fromPatternIndex: occurrence.index, toPatternIndex: next.index });
     }
     previousPattern = occurrence.pattern;
   }
@@ -217,7 +223,7 @@ function reconstruct(network: TransitNetwork, graph: Graph, end: Label): Transit
 export function findTransitJourney(
   network: TransitNetwork, origin: LatLon, destination: LatLon, options: TransitRoutingOptions = {}
 ): TransitJourney | null {
-  const maxTransfers = options.maxTransfers ?? 3;
+  const maxTransfers = options.boardingSequence ? options.boardingSequence.length - 1 : options.maxTransfers ?? 3;
   const radius = options.maxAccessDistanceM ?? 350;
   const penalty = options.transferPenaltyM ?? 1500;
   if (!Number.isInteger(maxTransfers) || maxTransfers < 0 || !Number.isFinite(radius) || radius < 0 ||
@@ -265,7 +271,7 @@ export function findTransitJourney(
     if (current.node < stopCount) {
       const stop = current.node;
       const egress = ends.get(stop);
-      if (current.boardings > 0 && (!automatic || (current.step?.kind === "alight" && current.originGroup !== graph.stopGroups[stop])) && egress !== undefined && current.cost + egress < bestCost) {
+      if (current.boardings > 0 && (!options.boardingSequence || current.boardings === options.boardingSequence.length) && (!automatic || (current.step?.kind === "alight" && current.originGroup !== graph.stopGroups[stop])) && egress !== undefined && current.cost + egress < bestCost) {
         best = current;
         bestCost = current.cost + egress;
       }
@@ -279,6 +285,10 @@ export function findTransitJourney(
       }
       if (current.boardings <= maxTransfers) {
         for (const occurrence of graph.board[stop]) {
+          const line = network.lines[network.patterns[graph.occurrences[occurrence].pattern].line];
+          if (options.allowedLineIds && !options.allowedLineIds.has(line.id)) continue;
+          if (options.boardingLineIds?.[current.boardings] && !options.boardingLineIds[current.boardings]!.has(line.id)) continue;
+          if (options.boardingSequence && !options.boardingSequence[current.boardings]?.includes(line.mode)) continue;
           if (current.boardings === 0 && options.initialBoardingMode &&
               network.lines[network.patterns[graph.occurrences[occurrence].pattern].line].mode !== options.initialBoardingMode) continue;
           add(stopCount + occurrence + 1, current.boardings + 1,

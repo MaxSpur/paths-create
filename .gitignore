@@ -4,6 +4,7 @@ dist/
 .vite/
 coverage/
 *.tsbuildinfo
+__pycache__/
 
 # Environment and local overrides
 .env
@@ -28,3 +29,6 @@ Logs/
 .local-ors/
 
 .benchmark-output/
+
+# User-selected NetMob source files remain local
+/local/

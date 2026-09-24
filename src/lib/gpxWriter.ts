@@ -18,6 +18,7 @@ interface SegmentEndpoint {
 }
 
 interface TripSegment {
+  modeled?: Omit<import("./netmobTypes").ModeledLeg, "coordinates">;
   role: SegmentRole;
   mode: SegmentMode;
   name: string;
@@ -49,6 +50,8 @@ export interface GpxPointInput {
 }
 
 export interface GpxTripInput {
+  orderedLegs?: import("./netmobTypes").ModeledLeg[];
+  netmob?: import("./netmobTypes").NetmobMetadata;
   places?: boolean;
   id: string;
   name: string;
@@ -154,6 +157,7 @@ function segmentMetadataToXml(segment: TripSegment, index: number, distanceM: st
   })}>
         ${endpointToXml(segment.from, "odc:from")}
         ${endpointToXml(segment.to, "odc:to")}
+        ${segment.modeled ? `<odc:modeled>${escapeXml(JSON.stringify(segment.modeled))}</odc:modeled>` : ""}
       </odc:segment>`;
 }
 
@@ -260,6 +264,15 @@ function pointToXml(role: EndpointRole, point: GpxPointInput | undefined): strin
 }
 
 export function buildTripSegments(input: GpxTripInput): TripSegment[] {
+  if (input.orderedLegs) return input.orderedLegs.map((leg,index) => ({
+    role: leg.mode === "walking" ? (index === 0 ? "walk-in" : index === input.orderedLegs!.length-1 ? "walk-out" : "transfer") : leg.mode === "driving" || leg.mode === "cycling" ? leg.mode : "transit",
+    mode: leg.mode, name: `${input.name} - ${index + 1} ${leg.sourceMode}`,
+    description: JSON.stringify({...leg, coordinates: undefined}),
+    from: {kind: leg.fromStopId ? "stop" : "point", role: index === 0 ? "origin" : "boarding", ref: leg.fromStopId ?? (index === 0 ? input.originPoint?.id ?? `${input.id}-leg-${index}` : `${input.id}-leg-${index}`)},
+    to: {kind: leg.toStopId ? "stop" : "point", role: index === input.orderedLegs!.length-1 ? "destination" : "alighting", ref: leg.toStopId ?? (index === input.orderedLegs!.length-1 ? input.destinationPoint?.id ?? `${input.id}-leg-${index+1}` : `${input.id}-leg-${index+1}`)},
+    coords: leg.coordinates, geometrySource: leg.geometrySource as TripSegment["geometrySource"],
+    modeled: {...leg, coordinates: undefined}
+  }));
   const direct = input.cycling?.length ? input.cycling : input.driving;
   const directMode = input.cycling?.length ? "cycling" : "driving";
   if (direct && direct.length > 0) {
@@ -399,18 +412,19 @@ export function buildTripGpx(input: GpxTripInput): string {
         id: input.id,
         pairKey: input.pairKey,
         routeMode,
-        schemaVersion: input.accessMode === "cycling" || routeMode === "cycling" ? 4 : input.places ? 3 : input.transitJourney ? 2 : 1,
+        schemaVersion: input.orderedLegs ? 5 : input.accessMode === "cycling" || routeMode === "cycling" ? 4 : input.places ? 3 : input.transitJourney ? 2 : 1,
         accessMode: input.accessMode,
         bikeParking: input.accessMode === "cycling" ? "unverified" : undefined,
         bikeHandling: input.accessMode === "cycling" ? "leave-at-boarding-station" : undefined,
-        networkVersion: input.transitJourney?.networkVersion,
+        networkVersion: input.transitJourney?.networkVersion ?? input.netmob?.networkVersion,
         transferCount: input.transitJourney?.transferCount,
         segmentCount: segments.length
       })}>
         ${stationToXml("origin", input.originStation, input.places)}
         ${stationToXml("destination", input.destinationStation, input.places)}
         ${pointToXml("origin", input.originPoint)}
-        ${pointToXml("destination", input.destinationPoint)}${input.transitJourney ? '\n        <odc:source attribution="Île-de-France Mobilités" license="Licence Mobilité" licenseUrl="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm" geometryAttribution="© OpenStreetMap contributors" geometryLicense="ODbL" geometryLicenseUrl="https://opendatacommons.org/licenses/odbl/1-0/" url="https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/offre-horaires-tc-gtfs-idfm" />' : ""}
+        ${pointToXml("destination", input.destinationPoint)}${input.transitJourney || input.orderedLegs?.some(l=>l.geometrySource==="gtfs") ? '\n        <odc:source attribution="Île-de-France Mobilités" license="Licence Mobilité" licenseUrl="https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm" geometryAttribution="© OpenStreetMap contributors" geometryLicense="ODbL" geometryLicenseUrl="https://opendatacommons.org/licenses/odbl/1-0/" url="https://prim.iledefrance-mobilites.fr/fr/jeux-de-donnees/offre-horaires-tc-gtfs-idfm" />' : ""}
+        ${input.netmob ? `<odc:netmob version="1">${escapeXml(JSON.stringify(input.netmob))}</odc:netmob>` : ""}
       </odc:trip>
     </extensions>
   </metadata>

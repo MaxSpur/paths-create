@@ -36,7 +36,7 @@ interface PointClockState {
 export function createApp(root: HTMLElement): void {
   root.innerHTML = `
     <div class="app-shell">
-      <aside id="controlPanel" class="panel"></aside>
+      <aside class="panel"><nav class="workflow-tabs" aria-label="Generation workflow"><button id="manualTab" aria-pressed="true">Manual</button><button id="netmobTab" aria-pressed="false">NetMob</button></nav><div id="controlPanel"></div><div id="netmobPanel" hidden></div></aside>
       <main id="mapArea" class="map-area"></main>
     </div>
   `;
@@ -48,6 +48,9 @@ export function createApp(root: HTMLElement): void {
     throw new Error("Failed to initialize app layout.");
   }
 
+  let workflow: "manual" | "netmob" = "manual";
+  let netmob: import("./netmob").NetmobView | undefined;
+  let netmobLoading: Promise<void> | undefined;
   const store = createStateStore();
   const generationRouteCache = createGenerationRouteCache();
   let mode: EditMode = "idle";
@@ -284,8 +287,9 @@ export function createApp(root: HTMLElement): void {
     store.getState().ui.mapCenter,
     store.getState().ui.mapZoom,
     {
-      onTripClick: (tripId) => selectGeneratedTrip(tripId, true),
+      onTripClick: (tripId) => workflow === "netmob" ? netmob?.selectTrip(tripId) : selectGeneratedTrip(tripId, true),
       onMapClick: (point) => {
+        if (workflow === "netmob") return;
         const state = store.getState();
         const action = resolveMapClickAction({
           mode,
@@ -892,6 +896,8 @@ export function createApp(root: HTMLElement): void {
   };
 
   const renderNow = () => {
+    if (workflow === "netmob") {netmob?.renderMap(); return;}
+    map.showNetmobPairs([]);
     const state = store.getState();
     const activeStation = state.stations.find((item) => item.id === state.ui.activeStationId);
     const pointClocks = buildPointClockView(activeStation?.walkPoints.map((point) => point.id) ?? []);
@@ -1091,6 +1097,27 @@ export function createApp(root: HTMLElement): void {
   };
 
   const render = createRenderScheduler(renderNow);
+  const netmobPanel = root.querySelector<HTMLElement>("#netmobPanel")!;
+  const manualTab = root.querySelector<HTMLButtonElement>("#manualTab")!;
+  const netmobTab = root.querySelector<HTMLButtonElement>("#netmobTab")!;
+  manualTab.onclick = () => {
+    workflow = "manual"; netmob?.setVisible(false); panelElement.hidden = false; netmobPanel.hidden = true;
+    manualTab.setAttribute("aria-pressed", "true"); netmobTab.setAttribute("aria-pressed", "false"); render();
+  };
+  netmobTab.onclick = () => {
+    workflow = "netmob"; panelElement.hidden = true; netmobPanel.hidden = false;
+    manualTab.setAttribute("aria-pressed", "false"); netmobTab.setAttribute("aria-pressed", "true");
+    if (netmob) {netmob.setVisible(true); return;}
+    netmobPanel.textContent = "Loading NetMob…";
+    netmobLoading ??= import("./netmob").then(({createNetmobView}) => {
+      netmob = createNetmobView(netmobPanel, map, () => {
+        const state = store.getState();
+        return {provider: state.routingProvider ?? "hosted", key: state.orsApiKey,
+          maxAccessM: state.generation.maxAccessDistanceM ?? 1500, maxCyclingM: state.generation.maxCyclingDistanceM ?? 5000};
+      }, mapElement); netmob.setVisible(workflow === "netmob");
+    }).catch(error => {netmobLoading = undefined; netmobPanel.textContent = `Unable to load NetMob: ${error instanceof Error ? error.message : String(error)}`;});
+  };
+
 
   requestUiRefresh = () => {
     const state = store.getState();
@@ -1099,6 +1126,7 @@ export function createApp(root: HTMLElement): void {
   };
 
   window.addEventListener("keydown", (event) => {
+    if (workflow !== "manual") return;
     if (event.key !== "Delete" && event.key !== "Backspace") {
       return;
     }

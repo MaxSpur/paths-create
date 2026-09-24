@@ -12,6 +12,10 @@ export interface PreviewSegment {
 }
 
 function tripSegments(trip: GeneratedTrip, highlighted: boolean): PreviewSegment[] {
+  if (trip.exportInput?.orderedLegs) return trip.exportInput.orderedLegs.map(leg => ({
+    tripId: trip.id, role: leg.mode === "walking" ? "walk-in" : leg.mode === "cycling" || leg.mode === "driving" ? leg.mode : "transit",
+    coords: leg.coordinates, highlighted, dashed: leg.mode === "walking"
+  }));
   if (trip.routeMode === "cycling") {
     return trip.cyclingCoords?.length ? [{ tripId: trip.id, role: "cycling", coords: trip.cyclingCoords, highlighted }] : [];
   }

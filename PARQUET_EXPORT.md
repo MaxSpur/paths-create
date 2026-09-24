@@ -1,6 +1,6 @@
 # GeoParquet export
 
-The main app exports batches as GeoParquet 1.1 with Zstandard compression, or compressed GPX. No sampling, rounding or noise is introduced to Parquet geometry. Choose the open batch or all batches; export scope is independent of visible trip pages.
+The main app exports batches as GeoParquet 1.1 with Zstandard compression, or compressed GPX. Browser batch exports introduce no sampling, rounding or noise. Choose the open batch or all batches; export scope is independent of visible trip pages. The optional [local NetMob runner](NETMOB_RUNS.md) writes independent durable parts and can request compact geometry variation.
 
 App exports split each batch into parts of at most 1,000 trips. Each part is serialized in a disposable worker. A single Parquet part downloads directly; multiple parts are wrapped in a ZIP with a batch/file manifest. GPX parts are individual DEFLATE ZIPs, likewise wrapped for multiple parts. Footer `odc.batches` retains batch name, creation time and original generation report even for standalone Parquet files. Cancellation stops workers and prevents the final download. Existing GPX names are retained inside each part.
 
@@ -33,6 +33,16 @@ One row represents one leg. Sort by `batch_id`, `trip_id`, then **zero-based** `
 
 There are no individual observation timestamps or GNSS errors. The GPX file creation timestamp is not a movement timestamp and is not synthesized into Parquet observations. Consumers must explicitly support this schema; this is not an importer or complete editable project backup.
 
+## NetMob extension
+
+GeoParquet columns, CRS, exact coordinates and zero-based ordering remain schema 1. NetMob adds `trip_json.netmob.version = 1`: dataset SHA-256, source key/row index, original non-geometric fields, temporal issues, departure wall time, sampled endpoints, boundary provenance, seed/realization/trial settings, fit metrics and network/timing versions. Transit results also retain feed dates/hash/estimation method. `leg_json.modeled` carries recorded and selected mode, proxy assumptions, geometry/timing sources, modeled duration/distance, boarding wait, and elapsed start/end offsets. Duration excludes the separately stored wait; offsets and trip totals include it. Geometry never repeats in this metadata.
+
+One source record remains one trip regardless of survey weight. Inferred modes and poor fits remain explicit. Filtering to acceptable fits changes exported trips but retains the original batch report and its failures/exclusions; zero-success reports can be saved separately. GPX uses the same ordered legs and NetMob extension under trip schema 5. No per-point timestamps are synthesized. This extension does not make path exports importable as EMG input or as a saved project.
+
+## Compact local-run variation
+
+`writePathParquet(batches, {variation})` optionally perturbs existing vertices through `compactPathNoise.ts`. It adds no points or columns. `trip_json.geometryVariation` and the file footer disclose method/version, settings, deterministic identity, clean timing basis and boundary policy. `geometry`/`distance_m` describe the varied path; original NetMob metadata and modeled-leg measurements remain clean. Existing callers omit the option and retain exact coordinates. The local runner enables variation by default; `--clean` disables it. See [compact variation and matched measurements](NETMOB_RUNS.md#compact-variation).
+
 ## Measurements — 2026-09-10
 
 Apple M2 Max, macOS arm64; Node version is recorded with each run. Deterministic seed 90310 selects diverse subpaths from the bundled bus, metro, RER, train and tram patterns, with synthetic straight access/exit legs and cycling access on one fifth of trips. These are export fixtures, not validated door-to-door journeys. Direct driving/cycling, transfers, 3D and singleton geometry are covered by unit tests, not represented in the bulk timing fixture.
@@ -63,3 +73,7 @@ The isolated browser app fixture generates direct driving/cycling batches using 
 Generation and its canonical inputs still live in page memory. Future scaling work includes persisted/resumable batches and incremental storage; the hierarchy and bounded previews are now implemented.
 
 Sources: [GeoParquet 1.1](https://geoparquet.org/releases/v1.1.0/), [Parquet WASM](https://github.com/kylebarron/parquet-wasm), [Apache Arrow JS](https://arrow.apache.org/js/current/), [independent reader](https://github.com/hyparam/hyparquet).
+
+NetMob source fields are retained in each trip's `trip_json.netmob.raw`, including nulls, original mode spelling and survey weights. Tests compare the complete raw record after Parquet readback. Source polygon/centroid payloads are not embedded; exported geometry is the generated ordered route, with sampled endpoints and boundary provenance in metadata. Map visibility does not change export scope.
+
+Optional movement observations use a separate Point GeoParquet schema with clean/noisy coordinates and synthetic elapsed seconds; the leg-based path export above remains unchanged. See [MOVEMENT_SIMULATION.md](MOVEMENT_SIMULATION.md#noise-and-storage).

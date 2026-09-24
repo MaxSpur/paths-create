@@ -1,6 +1,6 @@
 # Origin-Destination Creator
 
-Create synthetic origin-to-destination paths from a browser-based map. Create reusable places and areas anywhere, combine walking with public transit, or generate direct driving/cycling routes.
+Create synthetic origin-to-destination paths from a browser-based map, using manual point pools or NetMob survey records. Create reusable places and areas anywhere, combine walking with public transit, or generate direct driving/cycling routes.
 
 **[Open the live app](https://www.maximspur.com/paths-create/)**
 
@@ -16,6 +16,7 @@ The interface and synthetic transit router run in the browser. Route generation 
 - Generate seeded, non-repeating batches of origin/destination pairs.
 - Browse generation batches with compact, color-coded trip rows and one selected-trip detail view.
 - Export GeoParquet by default, or enriched GPX ZIP, for the open batch or all batches.
+- For larger local NetMob jobs, start `npm run netmob:serve` and use **NetMob → Local runs** to control the [resumable runner](NETMOB_RUNS.md), writing Parquet parts directly to a visible folder with an output-size cap and optional light geometry variation. Full-dataset endurance testing is still pending.
 - Keep place data and settings in the current browser profile.
 
 ## Create A Trip Set
@@ -38,6 +39,33 @@ Each completed generation run adds a numbered batch of unused point pairs instea
 - Shrinking a sampling radius keeps existing points. Overlapping areas retain independent pools.
 - `Delete` or `Backspace` removes a selected area point. A single-point place is removed with **Delete place**.
 - Click a trajectory to select its trip and reveal its list row without moving the map. Click a list row to focus its route, or again to deselect. Shared stretches select the first matching trip unless the selected trip is on top.
+
+## NetMob Parquet pilot
+
+Choose **NetMob** beside **Manual**, then open the supplied EMG and/or OD/time-cube Parquet files. Files are read locally; the cube can be explored but cannot generate routes because its area codes have no geographic crosswalk or transport modes.
+
+1. **Explore** schema, weighted totals and paginated rows. Filter EMG by origin/destination, date/time, duration, mode sequence, purpose or eligibility; inspect a row for original values and exclusion reasons.
+2. **Prepare pairs** for the selected row or a filtered batch. Reproducible points are sampled inside the referenced areas, including trips within one area. Change the seed or realization for another sample.
+3. **Generate prepared** to try plausible street/transit routes against recorded modes and duration. Candidate endpoints are ranked by simulated movement duration by default; **Fit duration using** also offers the original ORS/timetable estimates. Defaults are 12 route trials and 100 records; the pilot caps these at 64 trials and 1,000 records. The provider and access limits come from Manual's settings. Cancel preserves completed results; **Retry unfinished** uses the original batch's records and realization.
+4. **Review / export** modeled duration, signed error, fit quality, ordered legs and assumptions. Export all valid routes or acceptable fits only as GeoParquet or GPX ZIP; **Save report** retains failures and exclusions.
+
+One generated trip represents one source row; weights are retained without expanding the population. A fit is acceptable within the greater of 3 minutes or 20% of recorded duration, both adjustable. The closest valid poor fit remains available. Missing durations are unassessed. Endpoints are geographical samples, not inferred homes or workplaces. Unknown modes, scooter/vehicle proxies and unverified parking are labeled.
+
+Transit uses recent timetable-derived estimates, including boarding waits and walking connections. These are modeled times, not verified historical services. The damaged source arrival-time field remains raw metadata. Exports preserve source identity and trip/leg timing but do not create per-point timestamps.
+
+**Inspect** shows the row’s full origin/destination boundaries. Mode/sequence and purpose dropdowns come from the file and follow other applied filters. Date fields include available bounds and a calendar heatmap; duration limits reflect the data. Empty combinations retain the previous filters.
+
+To process more matches, set **Batch rows** (up to 1,000) and click **Apply settings**. **Prepare filtered batch** selects the displayed source range; after generation, **Prepare next source batch** advances to the next range. For 1,453 matches at 100 rows per batch, there are 15 ranges (the last has 53 rows). **Previous/Next map page** only change the preview. Completed rows cannot be generated twice with the same seed and realization while their results remain in the session; use **Retry unfinished** for failures or cancelled work.
+
+**Trials** is the number of route attempts per row, including alternate endpoint locations and mode proxies. Each attempt may make several routing requests. **Realization** selects another reproducible sample for that row; it does not multiply the number of trips. **Show endpoint proposals** previews the sampled locations. Generation shows processed/total progress plus its active trial; live location drawing can be disabled and is limited to four updates per second.
+
+The open batch appears in the map overview. Click a route or endpoint to focus it and open its details; selection never changes its checkbox. Check a route or batch to **keep it visible** while focusing elsewhere. These toggles start off and can combine multiple batches. Click the map background to clear focus; dragging keeps it. Click an area in the overview to highlight routes touching it. **Map appearance**, at the bottom right of the map, collapses into a small bar. It controls unfocused visibility (hidden by default), points, paths, outlines, and basemap saturation/brightness. Double-click brightness to reset it to 100%. Its collapsible **Colors** section lets you edit transport-method colors, individual transit-line colors, and origin/destination outlines and points. **Default colors** restores published IDFM/GTFS line colors and the app’s street-mode defaults; opacity settings stay unchanged. Display choices do not affect export scope. There is no 100-route display cap; large selections may slow map interaction. Batch labels summarize filters and source ranges; route labels show a short number and recorded mode sequence.
+
+Route details compare the source and generated mode sequences. Original non-geometric row fields remain in both export formats, including principal/ordered modes, dates, purpose and weights. Source polygon/centroid payloads are not duplicated; generated geometry and boundary provenance are exported separately.
+
+Select a generated NetMob route and open **Movement & GNSS pilot** to simulate acceleration, stops and seeded location noise. The initial settings reproduce the selected route’s fitting duration. Adjust sampling, additional assumed road delays, station dwell and noise parameters; compare simulated, original modeled and recorded durations. The red preview and separate observation Parquet export preserve the clean route. The duration model runs on every candidate without creating dense observations. Observation previews are limited to one selected route and 50,000 points; it creates no files automatically. [Model assumptions and measured results](MOVEMENT_SIMULATION.md).
+
+Switching modes preserves Manual places, selections, settings and results. Imported files, prepared pairs and NetMob results are **session-only: export before reloading or closing**. **Close dataset** releases its import worker while retaining generated batches. Desktop memory is recommended: the measured 100-record mixed-mode run peaked near 3.1 GiB in the Node harness, excluding the local ORS server. Start small. For durable jobs, start `npm run netmob:serve` alongside the app, then use **Local runs**: create a job from applied filters, start a bounded stage, pause/resume and inspect saved routes. Outputs go to `local/netmob-runs/<name>/`; the browser can close while the controller keeps running. These local jobs persist on disk; the browser pilot remains session-only. The full-dataset endurance gate is still pending. [Pilot behavior and measured limits](NETMOB.md) and [supporting-data sources](public/data/netmob-data.LICENSE.md) provide details.
 
 ## Offline processing and online services
 
@@ -76,7 +104,7 @@ Files use standard GPX 1.1 plus an `odc` namespace describing transport mode, se
 ## Service Limits
 
 - ORS, Overpass, Nominatim, and map-tile availability and usage limits are outside the app's control.
-- Île-de-France transit follows published service patterns and permitted transfers, with at most three changes and a preference for fewer changes. It models no schedules, durations or real-time availability; night bus patterns can therefore appear alongside daytime services.
+- Manual Île-de-France transit follows published service patterns and permitted transfers, with at most three changes and a preference for fewer changes. It models no schedules, durations or real-time availability; night bus patterns can therefore appear alongside daytime services.
 - Automatic transit routing currently covers Île-de-France. Outside coverage, transit reports a clear failure; driving and cycling remain available.
 - Candidate stops must have street access within the selected walking/cycling limits. Search is bounded, and failures may require another point or a different walking limit. There is no silent driving substitution.
 - Provider-traced transit shapes and approximate station connectors are synthetic geometry, not exact underground corridors or accessibility guidance.
@@ -107,6 +135,7 @@ npm run ors:status
 
 ## Project Documentation
 
+- [NETMOB.md](NETMOB.md) — NetMob pilot model, source handling, limits and measurements.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — runtime structure, behavior, and deployment boundaries.
 - [PERFORMANCE.md](PERFORMANCE.md) — benchmark method, browser fixture, and historical measurements.
 - [GPX_EXPORT.md](GPX_EXPORT.md) — exported-file contract.
@@ -116,4 +145,4 @@ npm run ors:status
 
 ## License
 
-Application code: [MIT](LICENSE). The bundled transit dataset has separate [Licence Mobilité and ODbL notices](public/data/idfm-transit.LICENSE.md).
+Application code: [MIT](LICENSE). The bundled transit dataset has separate [Licence Mobilité and ODbL notices](public/data/idfm-transit.LICENSE.md); NetMob supporting assets have [their own source notice](public/data/netmob-data.LICENSE.md).

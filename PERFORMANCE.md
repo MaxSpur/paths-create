@@ -11,6 +11,8 @@ Run `npm run benchmark` for offline rail-graph and panel-DOM fixtures. Establish
 
 ## Batch export measurements
 
+The [local NetMob scale experiment](NETMOB_RUNS.md#measurements-and-next-gates) compares clean/varied Parquet on 1,000 hash-random source rows using bounded 100-row windows. It includes real fitting costs, exclusions, exact readback and part-level memory checkpoints; this is distinct from the synthetic format benchmark below.
+
 `npm run benchmark:parquet` compares current ZIP, DEFLATE ZIP and GeoParquet on identical structured fixtures, with independent exact geometry readback. See [PARQUET_EXPORT.md](PARQUET_EXPORT.md) for the method, schema, memory limits and 1,000/10,000-trip measurements.
 
 ## Runtime constraints
@@ -61,3 +63,24 @@ The production browser displays at most 10 batch headings and 50 trip rows, plus
 ## Snapshot integrity test — 2026-09-10
 
 The full bus-inclusive snapshot check approached Vitest's 5 s default timeout on CI. On the same local fixture, replacing repeated Vitest matchers inside the dataset loops with Node strict assertions preserves exhaustive validation and indexed failure messages while avoiding matcher-allocation overhead. A single matched local before/after run measured 4.383 s versus 104 ms for that test (not a repeated statistical benchmark). The dataset-wide test alone has a 15 s timeout; normal tests retain their default. This is a correctness gate, not an application-speed benchmark.
+
+## NetMob pilot
+
+Full-file imports, paged queries and matched local-routing samples of 1/10/100 records are documented with scope and memory limits in [NETMOB.md](NETMOB.md#bounds-measurements-and-reproduction). Run `npm run benchmark:netmob` for import-only work; positive counts explicitly use local ORS. This is separate from the manual route-cache and export benchmarks.
+
+## NetMob trial visualization
+
+Measured in the in-app browser on 2026-09-14 using local ORS: first 20 geographically eligible EMG rows matching METRO, duration 10–20 minutes; seed 90314, realization 0, 12 trials. Fresh page/import for each run, identical settings, same local routing process. Generation worker timing excludes import/asset loading and the final review render.
+
+| Live trial drawing | Generation time | ORS requests | Completed / acceptable / poor |
+| --- | ---: | ---: | --- |
+| On (maximum 4 updates/s) | 8.580 s | 1,010 | 20 / 13 / 7 |
+| Off | 8.647 s | 1,010 | 20 / 13 / 7 |
+
+This single matched pair showed no detectable slowdown from live previews (difference below 1%); it is not a statistically robust speedup or proof for every workload. Earlier previews rebuilt polygon layers on every trial and had not been benchmarked. The current lazy canvas overlay reuses areas/routes, throttles trial redraws, and lets users disable drawing without changing candidate order or progress reporting. Multi-batch rendering has no 100-route cap; vertex count and browser resources determine practical limits.
+
+## Movement fitting and observations
+
+See [MOVEMENT_SIMULATION.md](MOVEMENT_SIMULATION.md#calibration-strategy-and-reproduction) for participant-separated calibration, fresh random-row validation, matched trial-budget comparisons and memory limits. Candidate scoring evaluates phases only; dense motion/noise remains a selected-route operation. Calibration and validation save scalar statistics, not paths.
+
+The NetMob local controller streams small status objects at up to 1 Hz to the browser, with worker trial events throttled to 4 Hz. It sends no live trial geometry. Saved review is bounded to 25 outcome summaries and one trajectory; the companion decodes at most one committed part. Fitting/Parquet encoding remain in a separate bounded Node process. See [controller measurements and remaining gates](NETMOB_RUNS.md#browser-integration-verification); the first 100-row METRO 10–20 minute stage took about 27 seconds and 4,811 local routing requests. This workload is not a whole-file throughput forecast.

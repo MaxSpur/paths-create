@@ -1,8 +1,10 @@
 # Architecture
 
-The UI, transit search and GPX generation run in the browser. An optional local Java ORS companion provides street routes; hosted ORS remains available. `src/main.ts` mounts `createApp`; Leaflet displays arbitrary places, circular point pools and generated GPX trips. Automatic transit uses the Île-de-France GTFS-derived network; other regions report coverage limits while driving/cycling remain available. No schedules are modeled.
+The UI, transit search and GPX generation run in the browser. An optional local Java ORS companion provides street routes; hosted ORS remains available. `src/main.ts` mounts `createApp`; Leaflet displays arbitrary places, circular point pools and generated GPX trips. Automatic transit uses the Île-de-France GTFS-derived network; other regions report coverage limits while driving/cycling remain available. Manual models no schedules; the separate NetMob pilot estimates trip/leg times from a pinned recent timetable.
 
 ## Ownership
+
+The optional Node runner in `scripts/netmob/run.ts` reuses the domain modules outside the browser. `scripts/netmob/jobStore.ts` owns explicit-folder checkpoints, disk limits, locking and recovery; `compactPathNoise.ts` provides opt-in geometry variation through `writePathParquet`. Browser pilot state and exports remain session-based. `src/ui/netmobLocalRuns.ts` owns stable supervision controls and one saved-route preview; `localRunTypes.ts` defines the JSON protocol. `scripts/netmob/manager.ts` owns the loopback HTTP API, origin/token/path checks and one child lifecycle; `preview.ts` pages committed outcomes and decodes one exported trip. `npm run netmob:serve` builds an explicit visible runtime bundle and starts this controller independently of Vite. Source/filter/settings snapshots cross HTTP; bulk rows and trial geometry do not. Durable cursor positions refer to the pinned selection while source row identities remain unchanged. See [NETMOB_RUNS.md](NETMOB_RUNS.md).
 
 | Area | Source |
 | --- | --- |
@@ -11,6 +13,7 @@ The UI, transit search and GPX generation run in the browser. An optional local 
 | Sidebar markup/events and HTML escaping | `src/ui/panel.ts`, `src/ui/html.ts` |
 | Pure map-click intent and search-result ranking | `src/ui/interaction.ts`, `src/ui/locationSearch.ts` |
 | Render coalescing and shared preview geometry | `src/ui/renderScheduler.ts`, `src/ui/previewSegments.ts` |
+| NetMob import, explicit pairs, fitting and session UI | `src/lib/netmob*.ts`, `src/ui/netmob.ts`, `src/ui/netmobMap.ts`; contracts in [NETMOB.md](NETMOB.md) |
 | State defaults, normalization and localStorage | `src/lib/stateStore.ts` |
 | Generation and page-session route reuse | `src/lib/generator.ts`, `src/lib/generationRouteCache.ts` |
 | Transit loading, directed service routing, walking connections | `src/lib/transitNetwork.ts`, `src/lib/transitRouter.ts`, `src/lib/transitWalking.ts` |
@@ -19,6 +22,10 @@ The UI, transit search and GPX generation run in the browser. An optional local 
 | GPX serialization and lazy ZIP export | `src/lib/gpxWriter.ts`, `src/lib/exportZip.ts` |
 | Place creation and whole-pool movement | `src/lib/places.ts` |
 | Radius, sampling, pairing and coordinate helpers | `src/lib/stationRadius.ts`, `sampling.ts`, `pairing.ts`, `geo.ts` |
+
+## Workflow modes
+
+Manual and NetMob own separate state and results while sharing MapView. NetMob is lazy-loaded; per-file workers hold source tables and unique polygons, and a generation worker owns its optional TER-inclusive network/timing assets. Conditional facet queries and source batch offsets stay in import workers; Inspect, proposal previews and live trial events share the lazy canvas NetMob overlay. Review separates open-batch overview, temporary focus, and independent route/batch visibility pins; retained route layers support multi-batch display, endpoint/area selection and opacity controls. The lazy `netmobAppearance.ts` owns the independent bottom-right control panel and its session palette; generated transit legs carry the network line color for official defaults. Stable controls survive sidebar rerenders. Basemap filters affect only the tile pane and reset in Manual mode. `netmobRouting.ts` scores candidates with duration-only movement phases and retains original routing/timetable leg offsets separately. `movementSimulation.ts` and a disposable `movement.worker.ts` use the frozen fitting preset for an opt-in selected-route observation stage; `movementPanel.ts` owns its preview and separate Point GeoParquet export. See [MOVEMENT_SIMULATION.md](MOVEMENT_SIMULATION.md). NetMob never writes imported data or results to localStorage. Ordered `GpxTripInput.orderedLegs` and versioned source/fit metadata extend common previews/export without changing Manual pairing or saved-state schema. See [NETMOB.md](NETMOB.md). Vite pre-optimizes lazy export/import codecs to prevent first-use dependency discovery from reloading a live session.
 
 ## State and generation
 

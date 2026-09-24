@@ -24,6 +24,7 @@ vi.mock("../ui/map", () => ({
       mocks.callbacks = callbacks;
     }
     render(model: MapRenderModel) { mocks.model = model; }
+    showNetmobPairs() {}
     focusOnStation() {}
     focusOnPoint() {}
     focusOnTrip() {}
@@ -106,6 +107,19 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   document.body.innerHTML = "";
+});
+
+it("preserves manual selections and points when NetMob receives Delete",async()=>{
+  const state=savedStations();state.ui.selectedPointId="origin-1";start(state);
+  const before=loadState();
+  await click("#netmobTab");
+  await vi.dynamicImportSettled();await flush();
+  document.body.dispatchEvent(new KeyboardEvent("keydown",{key:"Delete",bubbles:true}));await flush();
+  expect(loadState().stations).toEqual(before.stations);
+  expect(loadState().ui.selectedPointId).toBe(before.ui.selectedPointId);
+  await click("#manualTab");
+  expect(document.querySelector<HTMLElement>("#controlPanel")!.hidden).toBe(false);
+  expect(loadState().selectedOriginStationId).toBe(before.selectedOriginStationId);
 });
 
 describe("places app lifecycle", () => {

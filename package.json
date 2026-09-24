@@ -11,7 +11,7 @@
   },
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && tsc -p tsconfig.runner.json && vite build",
     "preview": "vite preview",
     "check": "npm run test:run && npm run build && npm run bundle:check",
     "benchmark": "vitest bench --run",
@@ -23,19 +23,26 @@
     "ors:status": "node scripts/local-ors.mjs status",
     "ors:stop": "node scripts/local-ors.mjs stop",
     "ors:benchmark": "node scripts/benchmark-local-ors.mjs",
-    "benchmark:parquet": "node scripts/benchmark-parquet.mjs"
+    "benchmark:parquet": "node scripts/benchmark-parquet.mjs",
+    "benchmark:netmob": "node scripts/benchmark-netmob.mjs",
+    "benchmark:movement": "node scripts/benchmark-movement.mjs",
+    "calibrate:movement": "node scripts/calibrate-movement.mjs",
+    "validate:movement": "node scripts/validate-movement.mjs",
+    "benchmark:netmob-scale": "node scripts/benchmark-netmob-scale.mjs",
+    "netmob:run": "node scripts/netmob-run.mjs",
+    "netmob:serve": "node scripts/netmob-server.mjs"
   },
   "dependencies": {
     "apache-arrow": "^21.2.0",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
-    "parquet-wasm": "^0.7.2"
+    "parquet-wasm": "^0.7.2",
+    "hyparquet": "^1.30.0",
+    "hyparquet-compressors": "^1.1.1"
   },
   "devDependencies": {
     "@types/leaflet": "1.9.22",
     "@types/node": "26.2.0",
-    "hyparquet": "^1.30.0",
-    "hyparquet-compressors": "^1.1.1",
     "jsdom": "30.0.1",
     "typescript": "7.0.2",
     "vite": "8.2.1",

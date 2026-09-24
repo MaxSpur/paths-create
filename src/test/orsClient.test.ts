@@ -7,6 +7,26 @@ afterEach(() => {
 });
 
 describe("OrsClient", () => {
+  it("returns route metrics and passes cancellation to the request", async () => {
+    const controller=new AbortController();
+    const fetchMock=vi.spyOn(globalThis,"fetch").mockImplementation(async (_url,init)=>{
+      expect(init?.signal).toBe(controller.signal);
+      return new Response(JSON.stringify({features:[{geometry:{coordinates:[[2,48],[2.1,48.1]]},properties:{summary:{distance:1500,duration:900}}}]}));
+    });
+    const client=new OrsClient({apiKey:"test"});
+    expect(await client.getRouteDetails("foot-walking",{lat:48,lon:2},{lat:48.1,lon:2.1},controller.signal)).toMatchObject({distanceM:1500,durationS:900});
+    controller.abort();
+    await expect(client.getRouteDetails("foot-walking",{lat:48,lon:2},{lat:48.1,lon:2.1},controller.signal)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels retry backoff before another service request",async()=>{
+    const controller=new AbortController();
+    const fetchMock=vi.spyOn(globalThis,"fetch").mockImplementation(async()=>{setTimeout(()=>controller.abort(),5);return new Response("busy",{status:429});});
+    await expect(new OrsClient({apiKey:"test",retryBaseDelayMs:1000}).getRouteDetails("foot-walking",{lat:48,lon:2},{lat:48.1,lon:2.1},controller.signal)).rejects.toThrow();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
   it("requests walking elevation and retries on 429 before succeeding", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementationOnce(async () => {
       return new Response("rate limited", { status: 429 });

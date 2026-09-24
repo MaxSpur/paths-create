@@ -2,6 +2,7 @@ import {Binary, Float64, Int32, Table, Utf8, tableToIPC, vectorFromArray} from "
 import * as parquet from "parquet-wasm/esm";
 import {buildTripSegments, segmentDistanceM, type GpxTripInput} from "./gpxWriter";
 import type {LonLat} from "./types";
+import {varyPathGeometry,COMPACT_NOISE_VERSION,type CompactNoiseSettings} from './compactPathNoise';
 
 export interface PathBatch { id: string; trips: GpxTripInput[]; metadata?: {name: string; createdAt: string; report: import("./types").GenerationReport} }
 
@@ -24,9 +25,9 @@ export function encodePathWkb(coords: LonLat[]): {bytes: Uint8Array; type: strin
   return {bytes, type: `${point ? "Point" : "LineString"}${dimension === 3 ? " Z" : ""}`};
 }
 
-function tripMetadata(trip: GpxTripInput): string {
-  const {walkIn, metro, walkOut, driving, cycling, transitJourney, ...metadata} = trip;
-  return JSON.stringify({...metadata, ...(transitJourney ? {transitJourney: {
+function tripMetadata(trip: GpxTripInput, variation?:CompactNoiseSettings): string {
+  const {walkIn, metro, walkOut, driving, cycling, transitJourney, orderedLegs: _orderedLegs, ...metadata} = trip;
+  return JSON.stringify({...metadata, ...(variation?{geometryVariation:{version:COMPACT_NOISE_VERSION,...variation,identity:variationIdentity(trip),timingBasis:'Clean fitted route; variation does not change duration or fit',boundaryPolicy:'Clean snapped endpoints validated; perturbed coordinates may cross the boundary',method:'Bounded horizontal offsets interpolated at distance knots; original vertex count; not a GNSS receiver model'}}:{}), ...(transitJourney ? {transitJourney: {
     from: transitJourney.from, to: transitJourney.to,
     networkVersion: transitJourney.networkVersion, transferCount: transitJourney.transferCount
   }} : {}), ...(trip.accessMode === "cycling" ? {
@@ -35,7 +36,8 @@ function tripMetadata(trip: GpxTripInput): string {
 }
 
 /** Prototype: caller initializes the WASM runtime; write in a worker for browser use. */
-export function writePathParquet(batches: PathBatch[]): Uint8Array {
+const variationIdentity=(trip:GpxTripInput)=>JSON.stringify([trip.netmob?.datasetId??'',trip.netmob?.rowIndex??null,trip.id]);
+export function writePathParquet(batches: PathBatch[],options:{variation?:CompactNoiseSettings}={}): Uint8Array {
   const rows: Array<{
     batch_id: string; trip_id: string; leg_index: number; role: string; mode: string;
     line_id: string | null; line_name: string | null; geometry_source: string | null;
@@ -53,15 +55,17 @@ export function writePathParquet(batches: PathBatch[]): Uint8Array {
       tripIds.add(trip.id);
       const segments = buildTripSegments(trip);
       if (!segments.length) throw new Error(`Trip ${trip.id} has no path geometry.`);
-      const metadata = tripMetadata(trip);
+      const metadata = tripMetadata(trip,options.variation);
+      const varied=options.variation?varyPathGeometry(segments.map(s=>s.coords),variationIdentity(trip),options.variation):undefined;
       for (const [index, segment] of segments.entries()) {
-        const geometry = encodePathWkb(segment.coords);
+        const coordinates=varied?.[index]??segment.coords;
+        const geometry = encodePathWkb(coordinates);
         geometryTypes.add(geometry.type);
         rows.push({batch_id: batch.id, trip_id: trip.id, leg_index: index,
           role: segment.role, mode: segment.mode,
-          line_id: segment.transitLeg?.line?.id ?? null, line_name: segment.transitLeg?.line?.name ?? null,
+          line_id: segment.modeled?.lineId ?? segment.transitLeg?.line?.id ?? null, line_name: segment.modeled?.lineName ?? segment.transitLeg?.line?.name ?? null,
           geometry_source: segment.geometrySource ?? null,
-          point_count: segment.coords.length, distance_m: segmentDistanceM(segment.coords), geometry: geometry.bytes,
+          point_count: coordinates.length, distance_m: segmentDistanceM(coordinates), geometry: geometry.bytes,
           from_json: JSON.stringify(segment.from), to_json: JSON.stringify(segment.to), trip_json: metadata,
           leg_json: JSON.stringify({...segment, coords: undefined, transitLeg: segment.transitLeg ? {...segment.transitLeg, coordinates: undefined} : undefined})});
       }
@@ -83,7 +87,7 @@ export function writePathParquet(batches: PathBatch[]): Uint8Array {
         geometry: {encoding: "WKB", geometry_types: [...geometryTypes].sort(), edges: "planar"}
       }})],
       ["odc", JSON.stringify({schemaVersion: 1, legIndexBase: 0, batches: batches.map(({id, metadata}) => ({id, ...metadata})), coordinates: "longitude,latitude[,elevation_m]",
-        source: "Synthetic paths; no per-point timestamps or observation noise.",
+        source: options.variation?"Synthetic paths with bounded geometric variation; clean fit timings retained; no per-point timestamps. See trip_json.geometryVariation.":"Synthetic paths; no per-point timestamps or observation noise.",
         transitAttribution: "Île-de-France Mobilités", transitLicense: "https://cloud.fabmob.io/s/eYWWJBdM3fQiFNm",
         geometryAttribution: "© OpenStreetMap contributors", geometryLicense: "https://opendatacommons.org/licenses/odbl/1-0/"})]
     ])).build();
