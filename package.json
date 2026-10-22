@@ -34,18 +34,18 @@
   },
   "dependencies": {
     "apache-arrow": "^21.2.0",
+    "hyparquet": "^1.30.0",
+    "hyparquet-compressors": "^1.1.1",
     "jszip": "^3.10.1",
     "leaflet": "^1.9.4",
-    "parquet-wasm": "^0.7.2",
-    "hyparquet": "^1.30.0",
-    "hyparquet-compressors": "^1.1.1"
+    "parquet-wasm": "^0.7.2"
   },
   "devDependencies": {
     "@types/leaflet": "1.9.22",
     "@types/node": "26.2.0",
     "jsdom": "30.0.1",
     "typescript": "7.0.2",
-    "vite": "8.2.1",
-    "vitest": "4.1.10"
+    "vite": "8.2.4",
+    "vitest": "4.1.12"
   }
 }
